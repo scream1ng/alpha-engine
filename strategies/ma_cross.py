@@ -21,11 +21,14 @@ class MACross(Strategy):
         "max_bars": 20,
         "trail_atr_mult": 2.0,
         "be_trigger_atr_mult": 1.0,
+        "rsm_min": 0,
     }
 
     def scan(self, df: pd.DataFrame, params: dict) -> list[Signal]:
         p = {**self.default_params, **params}
         if len(df) < p["trend_period"] + 5:
+            return []
+        if not self._rsm_ok(df, p):
             return []
 
         _atr = df["_atr"] if "_atr" in df.columns else atr(df)
@@ -89,4 +92,5 @@ class MACross(Strategy):
             "ema_exit_period":     [0, 5, 10],
             "tp1_partial_pct":     [0.2, 0.3, 0.4, 0.5],
             "tp2_partial_pct":     [0.2, 0.3, 0.4, 0.5],
+            "rsm_min":             [0, 70, 75, 80],
         }

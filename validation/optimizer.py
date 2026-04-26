@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 def _composite_score(metrics: dict) -> float:
     w = SCORING_WEIGHTS
-    # Penalise runs with fewer than 3 trades — unreliable stats
-    trade_penalty = min(metrics.get("trade_count", 0) / 3.0, 1.0)
+    # Scale up to 1.0 at 10 trades — fewer trades = unreliable Calmar/Sharpe
+    trade_penalty = min(metrics.get("trade_count", 0) / 10.0, 1.0)
     return trade_penalty * (
         w["calmar"] * metrics["calmar"]
         + w["sharpe"] * metrics["sharpe"]

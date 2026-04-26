@@ -78,3 +78,43 @@ def close_position_in_range(df: pd.DataFrame) -> pd.Series:
     """Where close sits within high-low range, 0=bottom 1=top."""
     rng = (df["high"] - df["low"]).replace(0, np.nan)
     return (df["close"] - df["low"]) / rng
+
+
+def _rsm_final_rating(score: float) -> float:
+    score = float(score)
+    if score >= 195.93: return 99.0
+    if score <= 24.86:  return 1.0
+    if score >= 117.11: up, dn, rUp, rDn, w = 195.93, 117.11, 98, 90, 0.33
+    elif score >= 99.04: up, dn, rUp, rDn, w = 117.11,  99.04, 89, 70, 2.1
+    elif score >= 91.66: up, dn, rUp, rDn, w =  99.04,  91.66, 69, 50, 0.0
+    elif score >= 80.96: up, dn, rUp, rDn, w =  91.66,  80.96, 49, 30, 0.0
+    elif score >= 53.64: up, dn, rUp, rDn, w =  80.96,  53.64, 29, 10, 0.0
+    else:                up, dn, rUp, rDn, w =  53.64,  24.86,  9,  2, 0.0
+    sum_val = score + (score - dn) * w
+    if sum_val > (up - 1): sum_val = up - 1
+    k1 = dn / rDn
+    k2 = (up - 1) / rUp
+    k3 = (k1 - k2) / (up - 1 - dn)
+    return float(np.clip(score / (k1 - k3 * (score - dn)), rDn, rUp))
+
+
+def rsm(df: pd.DataFrame, period: int = 21) -> pd.Series:
+    """
+    Rolling RS Momentum rating (1-99) vs benchmark.
+    Requires _bm_close column (benchmark close prices aligned by date).
+    Returns NaN where benchmark data is missing.
+    """
+    if "_bm_close" not in df.columns:
+        return pd.Series(np.nan, index=df.index)
+    s_arr = df["close"].to_numpy(dtype=float)
+    b_arr = df["_bm_close"].to_numpy(dtype=float)
+    n = len(s_arr)
+    out = np.full(n, np.nan)
+    for i in range(period + 1, n):
+        s_now, s_p = s_arr[i], s_arr[i - period]
+        b_now, b_p = b_arr[i], b_arr[i - period]
+        if 0 in (s_p, b_p, b_now) or np.isnan([s_now, s_p, b_now, b_p]).any():
+            continue
+        raw = (s_now / s_p) / (b_now / b_p) * 100
+        out[i] = _rsm_final_rating(raw)
+    return pd.Series(out, index=df.index)

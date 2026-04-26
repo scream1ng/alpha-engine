@@ -10,7 +10,7 @@ Step-by-step runbook — what to run, in what order, and how often.
 pip install -r requirements.txt
 
 # Creates SQLite DB + tables (including any column migrations)
-python scripts/run_th.py optimise --symbols 5   # quick smoke test, 5 symbols only
+python run.py th optimise --symbols 5   # quick smoke test, 5 symbols only
 ```
 
 ---
@@ -32,13 +32,14 @@ Paper trading (`paper`) is optional validation before trusting live signals.
 All commands work for every market runner (`run_th.py`, `run_us.py`, `run_au.py`, `run_crypto.py`, `run_commodity.py`).
 
 ```bash
-python scripts/run_th.py [command] [--capital N] [--symbols N]
+python run.py [market] [command] [--capital N] [--symbols N]
 ```
 
 | Command | What it does |
 |---------|-------------|
-| `diagnose` | Bar-by-bar scan over 12 months. Shows how many signals each strategy fires. Run before optimise to catch dead strategies. |
+| `diagnose` | Bar-by-bar scan over 12 months. Shows how many signals each strategy fires. Run before optimise. |
 | `optimise` | Walk-forward optimisation (18m train / 6m test). Saves best params + live status to DB. |
+| `report` | Print last optimise result from DB instantly — no recomputation. |
 | `scan` | Generates today's signals using live-approved params from DB. |
 | `paper` | Simulates paper trading over last 90 days using live params. |
 | `validate` | Runs optimise then paper in sequence. |
@@ -50,13 +51,13 @@ python scripts/run_th.py [command] [--capital N] [--symbols N]
 
 | Task | Market | Frequency | Command |
 |------|--------|-----------|---------|
-| Signal scan | TH | Daily, 17:30 ICT (Mon–Fri) | `run_th.py scan` |
-| Signal scan | US | Daily, 22:00 ET (Mon–Fri) | `run_us.py scan` |
-| Signal scan | AU | Daily, 17:30 AEST (Mon–Fri) | `run_au.py scan` |
-| Signal scan | Crypto | Daily, 00:05 UTC | `run_crypto.py scan` |
-| Signal scan | Commodity | Daily, 22:00 ET (Mon–Fri) | `run_commodity.py scan` |
-| Re-optimise | All | Monthly (1st of month) | `run_*.py optimise` |
-| Diagnose | All | Before each optimise | `run_*.py diagnose` |
+| Signal scan | TH | Daily, 17:30 ICT (Mon–Fri) | `python run.py th scan` |
+| Signal scan | US | Daily, 22:00 ET (Mon–Fri) | `python run.py us scan` |
+| Signal scan | AU | Daily, 17:30 AEST (Mon–Fri) | `python run.py au scan` |
+| Signal scan | Crypto | Daily, 00:05 UTC | `python run.py crypto scan` |
+| Signal scan | Commodity | Daily, 22:00 ET (Mon–Fri) | `python run.py commodity scan` |
+| Re-optimise | All | Monthly (1st of month) | `python run.py all optimise` |
+| Diagnose | All | Before each optimise | `python run.py all diagnose` |
 
 ---
 
@@ -66,14 +67,13 @@ Run on the 1st of each month (or weekend closest to it):
 
 ```bash
 # 1. Check signals still firing
-python scripts/run_th.py diagnose --symbols 50
+python run.py th diagnose --symbols 50
 
 # 2. Re-optimise (uses latest 5yr rolling history)
-python scripts/run_th.py optimise --symbols 50 --capital 1000000
+python run.py th optimise --symbols 50 --capital 1000000
 
-# 3. Read the report — check which strategies are LIVE ✓
-# Key metric: Annual Return ≥ 15%
-# If a strategy drops to "not live", investigate before next scan
+# 3. View the result
+python run.py th report
 ```
 
 Repeat for each market.

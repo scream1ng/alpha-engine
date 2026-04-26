@@ -91,6 +91,10 @@ class StrategyParamsModel(Base):
     backtest_calmar        = Column(Float)
     backtest_pf            = Column(Float)
     backtest_winrate       = Column(Float)
+    backtest_trade_count   = Column(Integer)
+    backtest_avg_win       = Column(Float)
+    backtest_avg_loss      = Column(Float)
+    backtest_max_dd        = Column(Float)
     consistency_pass       = Column(Boolean)
     paper_gate_pass  = Column(Boolean)
     is_live          = Column(Boolean, nullable=False, default=False)
@@ -120,8 +124,15 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     if "sqlite" in DATABASE_URL:
         from sqlalchemy import text
+        new_cols = [
+            "backtest_annual_return REAL",
+            "backtest_trade_count   INTEGER",
+            "backtest_avg_win       REAL",
+            "backtest_avg_loss      REAL",
+            "backtest_max_dd        REAL",
+        ]
         with engine.connect() as conn:
-            for col_def in ["backtest_annual_return REAL"]:
+            for col_def in new_cols:
                 try:
                     conn.execute(text(f"ALTER TABLE strategy_params ADD COLUMN {col_def}"))
                     conn.commit()

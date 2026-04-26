@@ -13,6 +13,29 @@ from markets.base import MarketAdapter
 logger = logging.getLogger(__name__)
 
 
+def _fetch_benchmark(adapter: MarketAdapter, start: date, end: date):
+    """Fetch benchmark close prices. Returns Series indexed by date, or None on failure."""
+    try:
+        bm_df = adapter.ohlcv(adapter.benchmark, start, end)
+        if bm_df.empty:
+            return None
+        return bm_df[["close"]].rename(columns={"close": "_bm_close"})
+    except Exception as exc:
+        logger.warning("benchmark fetch failed (%s): %s", adapter.benchmark, exc)
+        return None
+
+
+def _attach_benchmark(df, bm_close) -> "pd.DataFrame":
+    """Join _bm_close column to stock df, forward-fill gaps."""
+    if bm_close is None or df.empty:
+        return df
+    import pandas as pd
+    merged = df.join(bm_close, how="left")
+    merged["_bm_close"] = merged["_bm_close"].ffill()
+    merged.attrs = df.attrs
+    return merged
+
+
 def _load_live_params(market: str, strategy_id: str) -> dict | None:
     from db.models import SessionLocal, StrategyParamsModel
     db = SessionLocal()
@@ -45,6 +68,7 @@ def cmd_scan(adapter: MarketAdapter, args: argparse.Namespace) -> list:
     logger.info("%s scan — %s | symbols=%d strategies=%s",
                 market.upper(), today, len(universe), list(strategies_map.keys()))
 
+    bm_close = _fetch_benchmark(adapter, start, today)
     all_signals = []
     skipped = 0
 
@@ -54,6 +78,7 @@ def cmd_scan(adapter: MarketAdapter, args: argparse.Namespace) -> list:
             skipped += 1
             continue
         df = apply_lookahead_guard(df, today)
+        df = _attach_benchmark(df, bm_close)
         df.attrs = {"symbol": symbol, "market": market}
 
         sym_signals = []
@@ -103,12 +128,15 @@ def cmd_diagnose(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     print(f"\nDIAGNOSE [{market.upper()}]: scanning {len(universe)} symbols × "
           f"{len(strategies_map)} strategies over 12 months ({start} → {today})\n")
 
+    bm_close = _fetch_benchmark(adapter, start, today)
+
     for symbol in universe:
         df = adapter.ohlcv(symbol, start, today)
         if df.empty or len(df) < 60:
             print(f"  {symbol}: skip (only {len(df)} bars)")
             continue
         df = apply_lookahead_guard(df, today)
+        df = _attach_benchmark(df, bm_close)
         df.attrs = {"symbol": symbol, "market": market}
 
         for strategy_id, strategy_cls in strategies_map.items():
@@ -171,6 +199,9 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     logger.info("=== %s optimise | %s | symbols=%d strategies=%d ===",
                 market.upper(), today, len(universe), len(strategies_map))
 
+    # Fetch benchmark once — used for RSM calculation across all stocks
+    bm_close = _fetch_benchmark(adapter, history_start, today)
+
     db = SessionLocal()
     total_combos = len(universe) * len(strategies_map)
     done = 0
@@ -179,6 +210,7 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         logger.info("[%d/%d] fetching %s (5yr history)",
                     done // len(strategies_map) + 1, len(universe), symbol)
         df = adapter.ohlcv(symbol, history_start, today)
+        df = _attach_benchmark(df, bm_close)
 
         if df.empty:
             logger.warning("  %s — no data returned, skipping", symbol)
@@ -255,6 +287,10 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             row.backtest_calmar = m.get("calmar")
             row.backtest_pf = m.get("profit_factor")
             row.backtest_winrate = m.get("win_rate")
+            row.backtest_trade_count = m.get("trade_count")
+            row.backtest_avg_win = m.get("avg_win")
+            row.backtest_avg_loss = m.get("avg_loss")
+            row.backtest_max_dd = m.get("max_drawdown")
             row.consistency_pass = consistency["pass"]
             row.is_live = is_live
             db.commit()
@@ -300,7 +336,10 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
 
     print("\n" + "=" * W)
     print(f"  {market.upper()} OPTIMISE REPORT — {_date.today()}")
-    print(f"  Universe: {len(universe)} symbols  |  Strategies: {len(strategies_map)}  |  Combos: {len(universe) * len(strategies_map)}")
+    if universe:
+        print(f"  Universe: {len(universe)} symbols  |  Strategies: {len(strategies_map)}  |  Combos: {len(universe) * len(strategies_map)}")
+    else:
+        print(f"  Strategies in DB: {len(rows)}  (reading saved results)")
     print("=" * W)
 
     live_count = 0
@@ -328,6 +367,7 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
         ema_str = f"EMA{ema_p}" if ema_p else "off"
 
         ann_ret   = (r.backtest_annual_return or 0) * 100
+        max_dd    = (r.backtest_max_dd or 0) * 100
         ann_ok    = (r.backtest_annual_return or 0) >= g["min_annual_return"]
         sharpe_ok = (r.backtest_sharpe  or 0) >= g["min_sharpe"]
         calmar_ok = (r.backtest_calmar  or 0) >= g["min_calmar"]
@@ -335,8 +375,14 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
         wr_ok     = (r.backtest_winrate or 0) >= g["min_win_rate"]
 
         print(f"\n  ┌─ {r.strategy.upper()}  [{status}]")
-        print(f"  │  Annual Return:  {ann_ret:+.1f}%{_flag(ann_ok)}(≥{g['min_annual_return']*100:.0f}%)  (annualised, best OOS window)")
-        print(f"  │  Risk metrics :  "
+        print(f"  │  Return   :  {ann_ret:+.1f}%{_flag(ann_ok)}(≥{g['min_annual_return']*100:.0f}%)  "
+              f"MaxDD={max_dd:.1f}%  "
+              f"Trades={r.backtest_trade_count or 0}")
+        print(f"  │  Per trade:  "
+              f"AvgWin={r.backtest_avg_win or 0:+.0f}  "
+              f"AvgLoss={r.backtest_avg_loss or 0:+.0f}  "
+              f"Ratio={abs(r.backtest_avg_win or 0) / abs(r.backtest_avg_loss or 1):.2f}x")
+        print(f"  │  Quality  :  "
               f"Sharpe={r.backtest_sharpe or 0:.2f}{_flag(sharpe_ok)}(≥{g['min_sharpe']})  "
               f"Calmar={r.backtest_calmar or 0:.1f}{_flag(calmar_ok)}(≥{g['min_calmar']})  "
               f"PF={r.backtest_pf or 0:.2f}{_flag(pf_ok)}(≥{g['min_profit_factor']})  "
@@ -348,7 +394,8 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
                         "bb_period", "bb_std", "kc_mult", "kc_period",
                         "fast_period", "slow_period", "trend_period",
                         "rsi_threshold", "consec_down_days", "rvol_min",
-                        "pullback_atr_band", "rvol_max_on_pullback", "body_pct_min"]
+                        "pullback_atr_band", "rvol_max_on_pullback", "body_pct_min",
+                        "rsm_min", "trend_sma_period"]
             sig_str = _param_delta(p, defaults, sig_keys)
             if sig_str:
                 print(f"  │  Signal filter:  {sig_str}")
@@ -434,10 +481,19 @@ def cmd_paper(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     logger.info("paper trading summary: %s", json.dumps(summary, indent=2))
 
 
+def cmd_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Print the last optimise result from DB — no recomputation."""
+    import strategies  # noqa: F401
+    from core.registry import StrategyRegistry
+    strategies_map = StrategyRegistry.for_market(adapter.market_id)
+    universe_hint: list = []  # report doesn't need live universe
+    _print_report(adapter.market_id, universe_hint, strategies_map)
+
+
 def make_parser(market_id: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=f"{market_id.upper()} market pipeline")
     parser.add_argument("command",
-                        choices=["scan", "diagnose", "optimise", "paper", "validate", "live"])
+                        choices=["scan", "diagnose", "optimise", "paper", "validate", "live", "report"])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--symbols", type=int, default=50,
@@ -453,5 +509,6 @@ def run(adapter: MarketAdapter, command: str, args: argparse.Namespace) -> None:
         "paper":    lambda: cmd_paper(adapter, args),
         "validate": lambda: (cmd_optimise(adapter, args), cmd_paper(adapter, args)),
         "live":     lambda: cmd_scan(adapter, args),
+        "report":   lambda: cmd_report(adapter, args),
     }
     dispatch.get(command, lambda: cmd_scan(adapter, args))()

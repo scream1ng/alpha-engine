@@ -13,17 +13,13 @@ Multi-market, multi-strategy algorithmic signal system. Runs isolated pipelines 
 ```bash
 pip install -r requirements.txt
 
-# Check strategies are firing signals (run this first)
-python scripts/run_th.py diagnose
+python run.py th diagnose                      # check strategies fire signals
+python run.py th optimise --capital 1000000    # walk-forward optimise
+python run.py th report                        # view results instantly
+python run.py th scan                          # generate today's signals
 
-# Walk-forward optimise — finds best params, saves to DB
-python scripts/run_th.py optimise --capital 1000000
-
-# Daily scan — generates signals using live-approved params
-python scripts/run_th.py scan
+python run.py all scan                         # scan every market at once
 ```
-
-Same commands for all markets: `run_us.py`, `run_au.py`, `run_crypto.py`, `run_commodity.py`
 
 > See [OPERATIONS.md](OPERATIONS.md) for full runbook, frequencies, and scheduling.
 
@@ -56,12 +52,10 @@ alpha-engine/
 ├── OPERATIONS.md               ← Runbook: what to run, in what order, how often
 │
 ├── scripts/
-│   ├── pipeline.py             ← Shared pipeline logic (all markets use this)
-│   ├── run_th.py               ← Thailand SET runner
-│   ├── run_us.py               ← US equities runner
-│   ├── run_au.py               ← AU ASX runner
-│   ├── run_crypto.py           ← Crypto runner
-│   └── run_commodity.py        ← Commodity/futures runner
+│   └── pipeline.py             ← Shared pipeline logic (all markets use this)
+│
+├── charts/
+│   └── nr7.py                  ← NR7 candlestick chart visualiser
 │
 ├── core/
 │   ├── signal.py               ← Signal, Position, ExitSignal dataclasses

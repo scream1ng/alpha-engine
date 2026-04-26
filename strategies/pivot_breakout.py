@@ -20,6 +20,7 @@ class PivotBreakout(Strategy):
         "max_bars": 15,
         "trail_atr_mult": 2.0,
         "be_trigger_atr_mult": 1.0,
+        "rsm_min": 0,
     }
 
     def scan(self, df: pd.DataFrame, params: dict) -> list[Signal]:
@@ -37,6 +38,8 @@ class PivotBreakout(Strategy):
         prev_high = df["close"].iloc[max(0, i - lookback):i].max()
 
         if not self._in_uptrend(df, p):
+            return []
+        if not self._rsm_ok(df, p):
             return []
         if bar["close"] <= prev_high:
             return []
@@ -75,4 +78,5 @@ class PivotBreakout(Strategy):
             "trend_sma_period":    [0, 50, 100, 200],
             "tp1_partial_pct":     [0.2, 0.3, 0.4, 0.5],
             "tp2_partial_pct":     [0.2, 0.3, 0.4, 0.5],
+            "rsm_min":             [0, 70, 75, 80],
         }

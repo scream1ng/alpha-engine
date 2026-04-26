@@ -25,7 +25,7 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         min_position_value=20_000,
         timezone="Asia/Bangkok",
         enabled_strategies=[
-            "pivot_breakout", "pullback_buy", "reversal",
+            "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
             "bb_squeeze", "ma_cross", "narrow_range",
         ],
     ),
@@ -40,7 +40,7 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         min_position_value=2_000,
         timezone="America/New_York",
         enabled_strategies=[
-            "pivot_breakout", "pullback_buy", "reversal",
+            "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
             "bb_squeeze", "ma_cross", "narrow_range",
         ],
     ),
@@ -54,7 +54,7 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         max_heat_pct=0.06,
         min_position_value=2_000,
         timezone="Australia/Sydney",
-        enabled_strategies=["pivot_breakout", "pullback_buy", "ma_cross"],
+        enabled_strategies=["pivot_breakout", "trendline_breakout", "pullback_buy", "ma_cross"],
     ),
     "crypto": MarketConfig(
         market_id="crypto",
@@ -106,5 +106,5 @@ SELECTION_GATE = {
     "min_calmar": 0.3,
     "min_profit_factor": 1.2,
     "min_win_rate": 0.35,
-    "min_trades": 3,
+    "min_trades": 10,            # enough trades for stats to be meaningful
 }

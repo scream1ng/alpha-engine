@@ -19,6 +19,25 @@ class Strategy(ABC):
         sma_val = float(sma(df, period).iloc[-1])
         return float(df["close"].iloc[-1]) >= sma_val
 
+    def _rsm_ok(self, df: pd.DataFrame, params: dict) -> bool:
+        """Return False if RSM filter active and current RSM below threshold.
+        RSM not applicable for crypto/commodity — always returns True for those."""
+        if df.attrs.get("market", "") in ("crypto", "commodity"):
+            return True
+        rsm_min = float(params.get("rsm_min", 0))
+        if rsm_min <= 0:
+            return True
+        col = "_rsm" if "_rsm" in df.columns else None
+        if col is None:
+            from core.indicators import rsm as _rsm_fn
+            rsm_val = float(_rsm_fn(df).iloc[-1])
+        else:
+            rsm_val = float(df[col].iloc[-1])
+        import math
+        if math.isnan(rsm_val):
+            return True  # no benchmark data — pass through
+        return rsm_val >= rsm_min
+
     @abstractmethod
     def scan(self, df: pd.DataFrame, params: dict) -> list[Signal]:
         """

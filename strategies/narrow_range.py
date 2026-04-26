@@ -21,6 +21,7 @@ class NarrowRange(Strategy):
         "max_bars": 10,
         "trail_atr_mult": 1.5,
         "be_trigger_atr_mult": 0.75,
+        "rsm_min": 0,
     }
 
     def scan(self, df: pd.DataFrame, params: dict) -> list[Signal]:
@@ -37,6 +38,8 @@ class NarrowRange(Strategy):
             return []
 
         if not self._in_uptrend(df, p):
+            return []
+        if not self._rsm_ok(df, p):
             return []
 
         # NR7: today's range is the narrowest of the last nr_period bars
@@ -106,4 +109,5 @@ class NarrowRange(Strategy):
             "trend_sma_period":    [0, 50, 100, 200],
             "tp1_partial_pct":     [0.2, 0.3, 0.4, 0.5],
             "tp2_partial_pct":     [0.2, 0.3, 0.4, 0.5],
+            "rsm_min":             [0, 70, 75, 80],
         }

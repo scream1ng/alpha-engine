@@ -14,7 +14,7 @@ def _precompute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Add param-independent indicator columns once — slices inherit them."""
     from core.indicators import (
         atr, rvol, rsi, ema, candle_body_pct, close_position_in_range,
-        momentum_histogram,
+        momentum_histogram, rsm,
     )
     df = df.copy()
     df["_atr"] = atr(df)
@@ -25,6 +25,7 @@ def _precompute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["_momentum"] = momentum_histogram(df)
     df["_ema5"] = ema(df, 5)
     df["_ema10"] = ema(df, 10)
+    df["_rsm"] = rsm(df)  # needs _bm_close col; NaN if benchmark not attached
     return df
 
 
@@ -159,9 +160,12 @@ def compute_metrics(trades: list[dict], initial_capital: float, n_bars: int = 25
         return {
             "sharpe": 0.0,
             "calmar": 0.0,
+            "annual_return": 0.0,
             "profit_factor": 0.0,
             "win_rate": 0.0,
             "trade_count": 0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
             "max_drawdown": 0.0,
             "total_pnl": 0.0,
             "trades": [],
@@ -212,6 +216,17 @@ def compute_metrics(trades: list[dict], initial_capital: float, n_bars: int = 25
     annual_return = (sum(pnls) / initial_capital) * annualization
     calmar = annual_return / max_dd if max_dd > 0 else annual_return
 
+    # avg win/loss as % of position value (entry_price × size)
+    def _pct(t: dict) -> float:
+        pos_val = t.get("entry_price", 0) * t.get("size", 0)
+        return t["pnl"] / pos_val if pos_val > 0 else 0.0
+
+    pct_pnls = [_pct(t) for t in trades]
+    wins_pct   = [p for p in pct_pnls if p > 0]
+    losses_pct = [p for p in pct_pnls if p < 0]
+    avg_win  = float(sum(wins_pct)   / len(wins_pct))   if wins_pct   else 0.0
+    avg_loss = float(sum(losses_pct) / len(losses_pct)) if losses_pct else 0.0
+
     return {
         "sharpe": sharpe,
         "calmar": float(calmar),
@@ -219,6 +234,8 @@ def compute_metrics(trades: list[dict], initial_capital: float, n_bars: int = 25
         "profit_factor": float(profit_factor),
         "win_rate": float(win_rate),
         "trade_count": len(trades),
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
         "max_drawdown": float(max_dd),
         "total_pnl": float(sum(pnls)),
         "trades": trades,
