@@ -1,0 +1,168 @@
+# Operations Guide
+
+Step-by-step runbook — what to run, in what order, and how often.
+
+---
+
+## First-time setup
+
+```bash
+pip install -r requirements.txt
+
+# Creates SQLite DB + tables (including any column migrations)
+python scripts/run_th.py optimise --symbols 5   # quick smoke test, 5 symbols only
+```
+
+---
+
+## Workflow overview
+
+```
+1. diagnose   ← verify strategies fire (run before every optimise)
+2. optimise   ← find best params per strategy, write to DB
+3. scan       ← daily: generate live signals using approved params
+```
+
+Paper trading (`paper`) is optional validation before trusting live signals.
+
+---
+
+## Commands
+
+All commands work for every market runner (`run_th.py`, `run_us.py`, `run_au.py`, `run_crypto.py`, `run_commodity.py`).
+
+```bash
+python scripts/run_th.py [command] [--capital N] [--symbols N]
+```
+
+| Command | What it does |
+|---------|-------------|
+| `diagnose` | Bar-by-bar scan over 12 months. Shows how many signals each strategy fires. Run before optimise to catch dead strategies. |
+| `optimise` | Walk-forward optimisation (18m train / 6m test). Saves best params + live status to DB. |
+| `scan` | Generates today's signals using live-approved params from DB. |
+| `paper` | Simulates paper trading over last 90 days using live params. |
+| `validate` | Runs optimise then paper in sequence. |
+| `live` | Same as scan (wire to broker execution when ready). |
+
+---
+
+## Frequency
+
+| Task | Market | Frequency | Command |
+|------|--------|-----------|---------|
+| Signal scan | TH | Daily, 17:30 ICT (Mon–Fri) | `run_th.py scan` |
+| Signal scan | US | Daily, 22:00 ET (Mon–Fri) | `run_us.py scan` |
+| Signal scan | AU | Daily, 17:30 AEST (Mon–Fri) | `run_au.py scan` |
+| Signal scan | Crypto | Daily, 00:05 UTC | `run_crypto.py scan` |
+| Signal scan | Commodity | Daily, 22:00 ET (Mon–Fri) | `run_commodity.py scan` |
+| Re-optimise | All | Monthly (1st of month) | `run_*.py optimise` |
+| Diagnose | All | Before each optimise | `run_*.py diagnose` |
+
+---
+
+## Monthly re-optimise procedure
+
+Run on the 1st of each month (or weekend closest to it):
+
+```bash
+# 1. Check signals still firing
+python scripts/run_th.py diagnose --symbols 50
+
+# 2. Re-optimise (uses latest 5yr rolling history)
+python scripts/run_th.py optimise --symbols 50 --capital 1000000
+
+# 3. Read the report — check which strategies are LIVE ✓
+# Key metric: Annual Return ≥ 15%
+# If a strategy drops to "not live", investigate before next scan
+```
+
+Repeat for each market.
+
+---
+
+## Reading the optimise report
+
+```
+┌─ PIVOT_BREAKOUT  [LIVE ✓]
+│  Annual Return:  +34.2%✓(≥15%)  (annualised, best OOS window)
+│  Risk metrics :  Sharpe=1.45✓  Calmar=1.2✓  PF=2.10✓  WR=58%✓
+│  Signal filter:  rvol_min=1.2  psth=0.005
+│  Entry → Exit :
+│    SL     = 1.5×ATR
+│    Trend  = SMA100 uptrend filter
+│    TP1    = 3.0×ATR  → sell 30%,  70% remains,  SL→breakeven
+│    TP2    = 4.5×ATR  → sell 30% of remaining,  49% trails to stop
+│    Trail  = 2.0×ATR
+│    EMA    = EMA10  (hard exit if close < EMA after TP1)
+│    Time   = exit after 20 bars
+│  Risk     :  0.50% capital per trade  |  Raw RR = 2.0:1
+└────────────────────────────────────────────────────────────
+```
+
+Status meanings:
+- `LIVE ✓` — strategy approved, params active, scan will use it
+- `not live — gate fail` — metrics below threshold (Annual Return, Sharpe, Calmar, PF, or WR)
+- `not live — consistency fail` — metrics degraded >50% in recent 1yr vs 2yr (regime change)
+
+---
+
+## Gate thresholds
+
+| Metric | Minimum | Why |
+|--------|---------|-----|
+| Annual Return | 15% | Must beat risk-free + deliver real alpha |
+| Sharpe | 0.5 | Return per unit of volatility |
+| Calmar | 0.3 | Return per unit of max drawdown |
+| Profit Factor | 1.2 | Gross wins must exceed gross losses by 20% |
+| Win Rate | 35% | Minimum to be viable with partial exits |
+| Consistency | 50% | Recent 1yr metrics ≥ 50% of 2yr metrics |
+
+---
+
+## When to re-optimise early
+
+- Strategy drops from `LIVE ✓` to `not live` after a scan cycle
+- Annual return on live trades diverges significantly from backtest
+- Market regime shift (index drops >20% in 3 months)
+- New strategy added — run optimise to get its params before scanning
+
+---
+
+## Inspect the database
+
+```bash
+# Quick status — which strategies are live right now
+sqlite3 alpha_engine_dev.db \
+  "SELECT market, strategy, printf('%.1f%%', backtest_annual_return*100) as ann_ret, is_live FROM strategy_params ORDER BY market, is_live DESC;"
+```
+
+```python
+# In Python
+from db.models import SessionLocal, StrategyParamsModel
+db = SessionLocal()
+for r in db.query(StrategyParamsModel).filter_by(is_live=True).all():
+    print(r.market, r.strategy, f"{(r.backtest_annual_return or 0)*100:.1f}%")
+```
+
+---
+
+## Environment variables
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `DATABASE_URL` | `sqlite:///alpha_engine_dev.db` | Override for Postgres in prod |
+
+```bash
+# Production
+DATABASE_URL=postgresql://user:pass@host/dbname python scripts/run_th.py scan
+```
+
+---
+
+## Adding a new strategy
+
+1. Create `strategies/my_strategy.py`, subclass `Strategy`, add `@StrategyRegistry.register`
+2. Implement `scan(df, params)` and `param_space()`
+3. Add strategy id to `enabled_strategies` in `config.py` for target markets
+4. Run `diagnose` — verify it fires signals
+5. Run `optimise` — walk-forward finds best params automatically
