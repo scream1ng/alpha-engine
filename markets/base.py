@@ -12,7 +12,7 @@ class MarketAdapter(ABC):
     lot_size: int
 
     @abstractmethod
-    def universe(self, as_of: date, top_n: int = 50) -> list[str]:
+    def universe(self, as_of: date, top_n: int | None = None) -> list[str]:
         """Point-in-time universe — no survivorship bias."""
 
     @abstractmethod

@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 import pandas as pd
 from strategies.base import Strategy
 from validation.backtest import run_backtest
+from validation.optimizer import aggregate_market_metrics
 from config import CONSISTENCY_THRESHOLD
 
 logger = logging.getLogger(__name__)
@@ -59,4 +60,65 @@ def check_consistency(
         "details": details,
         "full_2yr": {k: v for k, v in m2.items() if k != "trades"},
         "recent_1yr": {k: v for k, v in m1.items() if k != "trades"},
+    }
+
+
+def check_consistency_market(
+    dfs: list[pd.DataFrame],
+    strategy: Strategy,
+    params: dict,
+    initial_capital: float = 100_000,
+    threshold: float = CONSISTENCY_THRESHOLD,
+) -> dict:
+    """
+    Compare aggregate market metrics over 2yr full period vs 1yr recent period.
+    Aggregation uses medians across sampled symbols to avoid single-stock outliers.
+    """
+    metrics_2yr: list[dict] = []
+    metrics_1yr: list[dict] = []
+
+    for df in dfs:
+        sample = df.copy()
+        sample.index = pd.to_datetime(sample.index)
+        end_date = sample.index[-1].date()
+        start_2yr = end_date - relativedelta(years=2)
+        start_1yr = end_date - relativedelta(years=1)
+
+        df_2yr = sample[sample.index.date >= start_2yr].copy()
+        df_1yr = sample[sample.index.date >= start_1yr].copy()
+        df_2yr.attrs = sample.attrs
+        df_1yr.attrs = sample.attrs
+
+        if len(df_2yr) < 100 or len(df_1yr) < 50:
+            continue
+
+        metrics_2yr.append(run_backtest(df_2yr, strategy, params, initial_capital))
+        metrics_1yr.append(run_backtest(df_1yr, strategy, params, initial_capital))
+
+    if not metrics_2yr or not metrics_1yr:
+        return {"pass": False, "reason": "insufficient_data", "details": {}}
+
+    m2 = aggregate_market_metrics(metrics_2yr, universe_size=len(dfs))
+    m1 = aggregate_market_metrics(metrics_1yr, universe_size=len(dfs))
+
+    check_keys = ["sharpe", "profit_factor", "win_rate"]
+    failures: list[str] = []
+    details: dict = {}
+
+    for key in check_keys:
+        v2 = m2.get(key, 0.0)
+        v1 = m1.get(key, 0.0)
+        ratio = v1 / v2 if v2 > 0 else 0.0
+        details[key] = {"full_2yr": v2, "recent_1yr": v1, "ratio": ratio}
+        if ratio < threshold:
+            failures.append(key)
+
+    passed = len(failures) == 0
+    return {
+        "pass": passed,
+        "failures": failures,
+        "reason": f"drift in {failures}" if failures else "ok",
+        "details": details,
+        "full_2yr": m2,
+        "recent_1yr": m1,
     }

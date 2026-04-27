@@ -71,6 +71,13 @@ def _ask(prompt: str, default: str) -> str:
     return val if val else default
 
 
+def _parse_symbols(raw: str) -> int | None:
+    value = raw.strip().lower()
+    if value in ("", "all", "0"):
+        return None
+    return int(value)
+
+
 def _run_market(market: str, command: str, args: argparse.Namespace) -> None:
     from scripts.pipeline import run
     adapter = _get_adapter(market)
@@ -86,12 +93,11 @@ def interactive() -> None:
     market = _menu("SELECT MARKET", MARKETS)
     command = _menu("SELECT COMMAND", COMMANDS)
 
-    # Only ask for extra params when they matter
+    # Capital stays as an internal sizing baseline; interactive flows default it.
     capital = 1_000_000
-    symbols = 50
+    symbols = None
     if command in ("optimise", "validate", "diagnose", "paper"):
-        capital = int(_ask("Capital", "1000000"))
-        symbols = int(_ask("Symbols (top N by market cap)", "50"))
+        symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
 
     args = argparse.Namespace(capital=capital, symbols=symbols, dry_run=False)
 
@@ -111,7 +117,7 @@ def cli() -> None:
     parser.add_argument("market", choices=[m for m, _ in MARKETS])
     parser.add_argument("command", choices=[c for c, _ in COMMANDS])
     parser.add_argument("--capital", type=float, default=1_000_000)
-    parser.add_argument("--symbols", type=int, default=50)
+    parser.add_argument("--symbols", type=int)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 

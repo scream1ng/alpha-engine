@@ -63,7 +63,7 @@ def cmd_scan(adapter: MarketAdapter, args: argparse.Namespace) -> list:
     today = date.today()
     start = today - timedelta(days=365)
 
-    universe = adapter.universe(today, top_n=getattr(args, "symbols", 50))
+    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
     strategies_map = StrategyRegistry.for_market(market)
     logger.info("%s scan — %s | symbols=%d strategies=%s",
                 market.upper(), today, len(universe), list(strategies_map.keys()))
@@ -119,7 +119,7 @@ def cmd_diagnose(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     today = date.today()
     start = today - timedelta(days=365)
 
-    universe = adapter.universe(today, top_n=getattr(args, "symbols", 50))
+    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
     strategies_map = StrategyRegistry.for_market(market)
 
     fire_count: dict[str, dict[str, int]] = {sid: {} for sid in strategies_map}
@@ -184,8 +184,8 @@ def cmd_diagnose(adapter: MarketAdapter, args: argparse.Namespace) -> None:
 def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     import strategies  # noqa: F401
     from core.registry import StrategyRegistry
-    from validation.optimizer import walk_forward_optimise
-    from validation.consistency import check_consistency
+    from validation.optimizer import walk_forward_optimise_market
+    from validation.consistency import check_consistency_market
     from db.models import SessionLocal, StrategyParamsModel
     from config import SELECTION_GATE
 
@@ -193,7 +193,7 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     today = date.today()
     history_start = today - timedelta(days=365 * 5)
 
-    universe = adapter.universe(today, top_n=getattr(args, "symbols", 50))
+    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
     strategies_map = StrategyRegistry.for_market(market)
 
     logger.info("=== %s optimise | %s | symbols=%d strategies=%d ===",
@@ -203,101 +203,97 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     bm_close = _fetch_benchmark(adapter, history_start, today)
 
     db = SessionLocal()
-    total_combos = len(universe) * len(strategies_map)
-    done = 0
+    market_dfs = []
 
-    for symbol in universe:
-        logger.info("[%d/%d] fetching %s (5yr history)",
-                    done // len(strategies_map) + 1, len(universe), symbol)
+    for idx, symbol in enumerate(universe, start=1):
+        logger.info("[%d/%d] fetching %s (5yr history)", idx, len(universe), symbol)
         df = adapter.ohlcv(symbol, history_start, today)
         df = _attach_benchmark(df, bm_close)
 
         if df.empty:
             logger.warning("  %s — no data returned, skipping", symbol)
-            done += len(strategies_map)
             continue
         if len(df) < 300:
             logger.warning("  %s — only %d bars (need 300+), skipping", symbol, len(df))
-            done += len(strategies_map)
             continue
 
         logger.info("  %s — %d bars (%s → %s)", symbol, len(df),
                     df.index[0].date(), df.index[-1].date())
         df.attrs = {"symbol": symbol, "market": market}
+        market_dfs.append(df)
 
-        for strategy_id, strategy_cls in strategies_map.items():
-            done += 1
-            strategy = strategy_cls()
-            logger.info("[%d/%d] optimising %s / %s", done, total_combos, symbol, strategy_id)
+    if not market_dfs:
+        db.close()
+        logger.warning("=== no eligible symbols for %s optimise ===", market.upper())
+        return
 
-            opt = walk_forward_optimise(df, strategy, initial_capital=args.capital)
+    logger.info("=== %s optimise sample | eligible symbols=%d/%d ===",
+                market.upper(), len(market_dfs), len(universe))
 
-            if opt["status"] == "no_windows":
-                logger.warning("  → no valid windows, skipping DB write")
-                continue
+    total_strategies = len(strategies_map)
+    for idx, (strategy_id, strategy_cls) in enumerate(strategies_map.items(), start=1):
+        strategy = strategy_cls()
+        logger.info("[%d/%d] optimising %s across %d symbols",
+                    idx, total_strategies, strategy_id, len(market_dfs))
 
-            consistency = check_consistency(df, strategy, opt["best_params"], args.capital)
-            m = opt.get("best_metrics", {})
-            is_live = opt["status"] == "ok" and consistency["pass"]
+        opt = walk_forward_optimise_market(market_dfs, strategy, initial_capital=args.capital)
 
-            logger.info(
-                "  → score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d | "
-                "consistency=%s | gate=%s | is_live=%s",
-                opt.get("best_score", 0),
-                m.get("sharpe", 0), m.get("calmar", 0),
-                m.get("profit_factor", 0), (m.get("win_rate", 0) or 0) * 100,
-                m.get("trade_count", 0),
-                "PASS" if consistency["pass"] else f"FAIL({consistency.get('reason', '')})",
-                opt["status"].upper(),
-                "YES" if is_live else "NO",
-            )
-            if not consistency["pass"]:
-                for key, detail in consistency.get("details", {}).items():
-                    logger.info(
-                        "     drift check %s: 2yr=%.2f 1yr=%.2f ratio=%.0f%%",
-                        key, detail["full_2yr"], detail["recent_1yr"], detail["ratio"] * 100,
-                    )
+        if opt["status"] == "no_windows":
+            logger.warning("  → no valid windows, skipping DB write")
+            continue
 
-            new_score = opt.get("best_score") or 0
-            row = (
-                db.query(StrategyParamsModel)
-                .filter_by(market=market, strategy=strategy_id)
-                .first()
-            )
-            if row:
-                existing_live = bool(row.is_live)
-                should_overwrite = (
-                    (is_live and not existing_live)
-                    or (is_live == existing_live and new_score > (row.backtest_score or 0))
+        consistency = check_consistency_market(market_dfs, strategy, opt["best_params"], args.capital)
+        m = opt.get("best_metrics", {})
+        is_live = opt["status"] == "ok" and consistency["pass"]
+
+        logger.info(
+            "  → score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d symbols=%d/%d profitable=%.0f%% | "
+            "consistency=%s | gate=%s | is_live=%s",
+            opt.get("best_score", 0),
+            m.get("sharpe", 0), m.get("calmar", 0),
+            m.get("profit_factor", 0), (m.get("win_rate", 0) or 0) * 100,
+            m.get("trade_count", 0),
+            m.get("traded_symbol_count", 0), m.get("sampled_symbol_count", 0),
+            (m.get("profitable_symbol_rate", 0) or 0) * 100,
+            "PASS" if consistency["pass"] else f"FAIL({consistency.get('reason', '')})",
+            opt["status"].upper(),
+            "YES" if is_live else "NO",
+        )
+        if not consistency["pass"]:
+            for key, detail in consistency.get("details", {}).items():
+                logger.info(
+                    "     drift check %s: 2yr=%.2f 1yr=%.2f ratio=%.0f%%",
+                    key, detail["full_2yr"], detail["recent_1yr"], detail["ratio"] * 100,
                 )
-                if not should_overwrite:
-                    logger.info(
-                        "  → skipped DB write (existing=%s/%.3f, new=%s/%.3f)",
-                        "live" if existing_live else "not-live", row.backtest_score or 0,
-                        "live" if is_live else "not-live", new_score,
-                    )
-                    continue
-            if not row:
-                row = StrategyParamsModel(market=market, strategy=strategy_id)
-                db.add(row)
-            row.params = opt["best_params"]
-            row.backtest_score = new_score
-            row.backtest_annual_return = m.get("annual_return")
-            row.backtest_sharpe = m.get("sharpe")
-            row.backtest_calmar = m.get("calmar")
-            row.backtest_pf = m.get("profit_factor")
-            row.backtest_winrate = m.get("win_rate")
-            row.backtest_trade_count = m.get("trade_count")
-            row.backtest_avg_win = m.get("avg_win")
-            row.backtest_avg_loss = m.get("avg_loss")
-            row.backtest_max_dd = m.get("max_drawdown")
-            row.consistency_pass = consistency["pass"]
-            row.is_live = is_live
-            db.commit()
-            logger.info("  → saved to DB (score=%.3f is_live=%s)", new_score, is_live)
+
+        row = (
+            db.query(StrategyParamsModel)
+            .filter_by(market=market, strategy=strategy_id)
+            .first()
+        )
+        if not row:
+            row = StrategyParamsModel(market=market, strategy=strategy_id)
+            db.add(row)
+
+        new_score = opt.get("best_score") or 0
+        row.params = opt["best_params"]
+        row.backtest_score = new_score
+        row.backtest_annual_return = m.get("annual_return")
+        row.backtest_sharpe = m.get("sharpe")
+        row.backtest_calmar = m.get("calmar")
+        row.backtest_pf = m.get("profit_factor")
+        row.backtest_winrate = m.get("win_rate")
+        row.backtest_trade_count = m.get("trade_count")
+        row.backtest_avg_win = m.get("avg_win")
+        row.backtest_avg_loss = m.get("avg_loss")
+        row.backtest_max_dd = m.get("max_drawdown")
+        row.consistency_pass = consistency["pass"]
+        row.is_live = is_live
+        db.commit()
+        logger.info("  → saved to DB (score=%.3f is_live=%s)", new_score, is_live)
 
     db.close()
-    logger.info("=== optimisation complete | %d/%d combos processed ===", done, total_combos)
+    logger.info("=== optimisation complete | strategies=%d symbols=%d ===", total_strategies, len(market_dfs))
 
     _print_report(market, universe, strategies_map)
 
@@ -340,6 +336,7 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
         print(f"  Universe: {len(universe)} symbols  |  Strategies: {len(strategies_map)}  |  Combos: {len(universe) * len(strategies_map)}")
     else:
         print(f"  Strategies in DB: {len(rows)}  (reading saved results)")
+    print("  Metrics: shared params per strategy, latest OOS window, median across sampled symbols")
     print("=" * W)
 
     live_count = 0
@@ -375,12 +372,12 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
         wr_ok     = (r.backtest_winrate or 0) >= g["min_win_rate"]
 
         print(f"\n  ┌─ {r.strategy.upper()}  [{status}]")
-        print(f"  │  Return   :  {ann_ret:+.1f}%{_flag(ann_ok)}(≥{g['min_annual_return']*100:.0f}%)  "
+        print(f"  │  OOS Return: {ann_ret:+.1f}%{_flag(ann_ok)}(≥{g['min_annual_return']*100:.0f}%)  "
               f"MaxDD={max_dd:.1f}%  "
               f"Trades={r.backtest_trade_count or 0}")
-        print(f"  │  Per trade:  "
-              f"AvgWin={r.backtest_avg_win or 0:+.0f}  "
-              f"AvgLoss={r.backtest_avg_loss or 0:+.0f}  "
+        print(f"  │  Trade pct:  "
+              f"AvgWin={(r.backtest_avg_win or 0) * 100:+.1f}%  "
+              f"AvgLoss={(r.backtest_avg_loss or 0) * 100:+.1f}%  "
               f"Ratio={abs(r.backtest_avg_win or 0) / abs(r.backtest_avg_loss or 1):.2f}x")
         print(f"  │  Quality  :  "
               f"Sharpe={r.backtest_sharpe or 0:.2f}{_flag(sharpe_ok)}(≥{g['min_sharpe']})  "
@@ -448,7 +445,7 @@ def cmd_paper(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     trader = PaperTrader(capital=args.capital, ledger=ledger)
     strategies_map = StrategyRegistry.for_market(market)
 
-    for symbol in adapter.universe(today, top_n=getattr(args, "symbols", 50)):
+    for symbol in adapter.universe(today, top_n=getattr(args, "symbols", None)):
         df = adapter.ohlcv(symbol, start, today)
         if df.empty or len(df) < 60:
             continue
@@ -496,8 +493,8 @@ def make_parser(market_id: str) -> argparse.ArgumentParser:
                         choices=["scan", "diagnose", "optimise", "paper", "validate", "live", "report"])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--symbols", type=int, default=50,
-                        help="Top N symbols by market cap (default: 50)")
+    parser.add_argument("--symbols", type=int,
+                        help="Limit to top N symbols after turnover filtering (default: all)")
     return parser
 
 

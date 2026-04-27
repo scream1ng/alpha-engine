@@ -14,7 +14,7 @@ class USAdapter(MarketAdapter):
     min_adv = 5_000_000
     lot_size = 1
 
-    def universe(self, as_of: date, top_n: int = 50) -> list[str]:
+    def universe(self, as_of: date, top_n: int | None = None) -> list[str]:
         return get_universe("us", as_of, top_n=top_n)
 
     def ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame:

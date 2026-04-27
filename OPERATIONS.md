@@ -84,7 +84,7 @@ Repeat for each market.
 
 ```
 ┌─ PIVOT_BREAKOUT  [LIVE ✓]
-│  Annual Return:  +34.2%✓(≥15%)  (annualised, best OOS window)
+│  OOS Return:     +12.8%✓(≥15%)  (annualised, latest OOS window, median across sampled symbols)
 │  Risk metrics :  Sharpe=1.45✓  Calmar=1.2✓  PF=2.10✓  WR=58%✓
 │  Signal filter:  rvol_min=1.2  psth=0.005
 │  Entry → Exit :
@@ -103,6 +103,8 @@ Status meanings:
 - `LIVE ✓` — strategy approved, params active, scan will use it
 - `not live — gate fail` — metrics below threshold (Annual Return, Sharpe, Calmar, PF, or WR)
 - `not live — consistency fail` — metrics degraded >50% in recent 1yr vs 2yr (regime change)
+
+`optimise` now selects one shared parameter set per strategy for the sampled market universe. Reported metrics are from the latest valid walk-forward OOS window and aggregated across the sampled symbols, not a single best stock.
 
 ---
 
