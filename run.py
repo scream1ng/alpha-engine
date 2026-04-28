@@ -17,6 +17,7 @@ MARKETS = [
 
 COMMANDS = [
     ("report",   "View last optimise result (instant)"),
+    ("quick-report", "3yr annual return by strategy & filter phase"),
     ("diagnose", "Check how many signals each strategy fires"),
     ("optimise", "Walk-forward optimise — find best params"),
     ("scan",     "Generate today's signals (live strategies only)"),
@@ -99,7 +100,7 @@ def interactive() -> None:
     if command in ("optimise", "validate", "diagnose", "paper"):
         symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
 
-    args = argparse.Namespace(capital=capital, symbols=symbols, dry_run=False)
+    args = argparse.Namespace(capital=capital, symbols=symbols, dry_run=False, strategy_jobs=1)
 
     from db.models import init_db
     init_db()
@@ -118,6 +119,7 @@ def cli() -> None:
     parser.add_argument("command", choices=[c for c, _ in COMMANDS])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--symbols", type=int)
+    parser.add_argument("--strategy-jobs", type=int, default=1)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 

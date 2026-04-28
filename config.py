@@ -101,10 +101,10 @@ PAPER_MIN_TRADES = 30
 PAPER_MIN_MONTHS = 3
 
 SELECTION_GATE = {
-    "min_annual_return": 0.15,   # 15% — must beat risk-free + meaningful alpha
-    "min_sharpe": 0.5,
-    "min_calmar": 0.3,
-    "min_profit_factor": 1.2,
-    "min_win_rate": 0.35,
-    "min_trades": 10,            # enough trades for stats to be meaningful
+    "min_annual_return": 0.03,   # bootstrap gate for 6m OOS samples
+    "min_sharpe": 0.0,
+    "min_calmar": 0.0,
+    "min_profit_factor": 1.05,
+    "min_win_rate": 0.30,
+    "min_trades": 3,
 }

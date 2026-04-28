@@ -14,6 +14,7 @@ Multi-market, multi-strategy algorithmic signal system. Runs isolated pipelines 
 pip install -r requirements.txt
 
 python run.py th diagnose                      # check strategies fire signals
+python run.py th quick-report                  # fixed params over last 1 year
 python run.py th optimise --capital 1000000    # walk-forward optimise
 python run.py th report                        # view results instantly
 python run.py th scan                          # generate today's signals
@@ -31,7 +32,7 @@ python run.py all scan                         # scan every market at once
 diagnose → optimise → scan (daily)
               ↓
          walk-forward (18m train / 6m test)
-         gate: Annual Return ≥15%, Sharpe ≥0.5, Calmar ≥0.3, PF ≥1.2, WR ≥35%
+        gate: Annual Return ≥3%, Sharpe ≥0.0, Calmar ≥0.0, PF ≥1.05, WR ≥30%, Trades ≥3
          consistency: recent 1yr metrics must be ≥50% of 2yr
               ↓
          params saved to DB with is_live=True

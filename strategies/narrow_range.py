@@ -41,6 +41,8 @@ class NarrowRange(Strategy):
             return []
         if not self._rsm_ok(df, p):
             return []
+        if p["rvol_min"] > 0 and float(_rvol.iloc[-1]) < p["rvol_min"]:
+            return []
 
         # NR7: today's range is the narrowest of the last nr_period bars
         today_range = bar["high"] - bar["low"]

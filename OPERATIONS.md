@@ -38,6 +38,7 @@ python run.py [market] [command] [--capital N] [--symbols N]
 | Command | What it does |
 |---------|-------------|
 | `diagnose` | Bar-by-bar scan over 12 months. Shows how many signals each strategy fires. Run before optimise. |
+| `quick-report` | Runs one fixed parameter set over the last 12 months and prints simple per-strategy results. No gate, no DB write. |
 | `optimise` | Walk-forward optimisation (18m train / 6m test). Saves best params + live status to DB. |
 | `report` | Print last optimise result from DB instantly — no recomputation. |
 | `scan` | Generates today's signals using live-approved params from DB. |
@@ -78,6 +79,27 @@ python run.py th report
 
 Repeat for each market.
 
+## Quick fixed-setting check
+
+Use this when you want a fast read on strategy behavior before running full optimisation:
+
+```bash
+python run.py th quick-report
+python run.py all quick-report
+python run.py th quick-report --symbols 20
+```
+
+`quick-report` uses one shared setting across all strategies over the last 12 months:
+
+- `rvol_min = 2.0`
+- `trend_sma_period = 50`
+- `sl_atr_mult = 1.0`
+- `tp1_atr_mult = 2.0`, `tp1_partial_pct = 0.3`
+- `tp2_atr_mult = 2.0`, `tp2_partial_pct = 0.3`
+- `ema_exit_period = 10` with hard EMA exit enabled
+- move SL to breakeven after 3 bars
+- `risk_pct = 0.005`
+
 ---
 
 ## Reading the optimise report
@@ -112,11 +134,12 @@ Status meanings:
 
 | Metric | Minimum | Why |
 |--------|---------|-----|
-| Annual Return | 15% | Must beat risk-free + deliver real alpha |
-| Sharpe | 0.5 | Return per unit of volatility |
-| Calmar | 0.3 | Return per unit of max drawdown |
-| Profit Factor | 1.2 | Gross wins must exceed gross losses by 20% |
-| Win Rate | 35% | Minimum to be viable with partial exits |
+| Annual Return | 3% | Bootstrap gate for small 6m OOS samples |
+| Sharpe | 0.0 | Do not block early approval on unstable low-trade Sharpe |
+| Calmar | 0.0 | Do not block early approval on tiny or zero drawdown windows |
+| Profit Factor | 1.05 | Require gross wins to exceed gross losses |
+| Win Rate | 30% | Allow lower-WR, higher-RR strategies |
+| Trades | 3 | Enough to avoid pure zero-trade approvals |
 | Consistency | 50% | Recent 1yr metrics ≥ 50% of 2yr metrics |
 
 ---

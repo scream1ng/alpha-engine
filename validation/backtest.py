@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import date
+from collections import defaultdict
 import numpy as np
 import pandas as pd
 from strategies.base import Strategy
@@ -53,14 +54,7 @@ def run_backtest(
         bar_df.attrs = df.attrs
         bar = df.iloc[i]
         bar_date: date = bar.name.date() if hasattr(bar.name, "date") else bar.name
-        bar_dict = {
-            "open": float(bar["open"]),
-            "high": float(bar["high"]),
-            "low": float(bar["low"]),
-            "close": float(bar["close"]),
-            "ema5":  float(bar["_ema5"])  if "_ema5"  in df.columns else None,
-            "ema10": float(bar["_ema10"]) if "_ema10" in df.columns else None,
-        }
+        bar_dict = _bar_to_dict(bar, df)
 
         # Trigger pending orders
         still_pending = []
@@ -141,6 +135,173 @@ def run_backtest(
 
     n_bars = len(df) - MIN_BARS_WARMUP
     return compute_metrics(trades, initial_capital, n_bars=n_bars)
+
+
+def run_portfolio_backtest(
+    dfs: list[pd.DataFrame],
+    strategy: Strategy,
+    params: dict,
+    initial_capital: float = 100_000,
+) -> dict:
+    from core.ledger import PortfolioLedger
+    from core.risk_policy import get_risk_policy
+
+    prepared: list[dict] = []
+    trading_dates: set[date] = set()
+    pending_signals: dict[str, list] = defaultdict(list)
+
+    for raw_df in dfs:
+        saved_attrs = raw_df.attrs
+        df = _precompute_indicators(raw_df)
+        df.attrs = saved_attrs
+        if len(df) <= MIN_BARS_WARMUP:
+            continue
+
+        symbol = df.attrs.get("symbol")
+        if not symbol:
+            continue
+
+        date_to_index = {
+            ts.date() if hasattr(ts, "date") else ts: i
+            for i, ts in enumerate(df.index[MIN_BARS_WARMUP:], start=MIN_BARS_WARMUP)
+        }
+        trading_dates.update(date_to_index.keys())
+        prepared.append({"df": df, "symbol": symbol, "date_to_index": date_to_index})
+
+    if not prepared:
+        out = compute_metrics([], initial_capital, n_bars=1)
+        out["sampled_symbol_count"] = len(dfs)
+        out["traded_symbol_count"] = 0
+        out["profitable_symbol_rate"] = 0.0
+        out["universe_size"] = len(dfs)
+        return out
+
+    ledger = PortfolioLedger()
+    risk_policy = get_risk_policy()
+    capital = initial_capital
+    buying_power = initial_capital
+
+    for bar_date in sorted(trading_dates):
+        for item in prepared:
+            idx = item["date_to_index"].get(bar_date)
+            if idx is None:
+                continue
+
+            df = item["df"]
+            symbol = item["symbol"]
+            bar_df = df.iloc[: idx + 1].copy()
+            bar_df.attrs = df.attrs
+            bar = df.iloc[idx]
+            bar_dict = _bar_to_dict(bar, df)
+
+            still_pending = []
+            for sig in pending_signals[symbol]:
+                if check_pending_triggered(sig, bar_dict):
+                    capital, buying_power = _open_portfolio_position(
+                        ledger, risk_policy, capital, buying_power, sig, params, sig.entry, bar_date
+                    )
+                else:
+                    still_pending.append(sig)
+            pending_signals[symbol] = still_pending
+
+            for pos in list(ledger.open_positions()):
+                if pos.signal.symbol != symbol:
+                    continue
+
+                pos.bars_held += 1
+                for policy in get_exit_policies(pos.signal.exit_policies):
+                    exit_sig = policy.check(pos, bar_dict, params)
+                    if not exit_sig:
+                        continue
+
+                    size = int(pos.size * exit_sig.partial_pct) if exit_sig.partial else pos.size
+                    pnl = (
+                        (exit_sig.price - pos.entry_price) * size
+                        if pos.signal.direction == "long"
+                        else (pos.entry_price - exit_sig.price) * size
+                    )
+                    ledger.register_exit(pos, exit_sig, bar_date)
+                    capital += pnl
+                    buying_power += size * exit_sig.price
+                    break
+
+            open_syms = {p.signal.symbol for p in ledger.open_positions()}
+            for sig in strategy.scan(bar_df, params):
+                if sig.symbol in open_syms:
+                    continue
+                if is_pending_order(sig):
+                    pending_signals[sig.symbol].append(sig)
+                else:
+                    capital, buying_power = _open_portfolio_position(
+                        ledger, risk_policy, capital, buying_power, sig, params, sig.entry, bar_date
+                    )
+
+    trades = ledger.closed_trades()
+    out = compute_metrics(trades, initial_capital, n_bars=max(len(trading_dates), 1))
+    per_symbol_pnl: dict[str, float] = defaultdict(float)
+    for trade in trades:
+        per_symbol_pnl[trade["symbol"]] += float(trade["pnl"])
+
+    traded_symbol_count = len(per_symbol_pnl)
+    profitable_symbol_count = sum(1 for pnl in per_symbol_pnl.values() if pnl > 0)
+    out["sampled_symbol_count"] = len(prepared)
+    out["traded_symbol_count"] = traded_symbol_count
+    out["profitable_symbol_rate"] = (
+        profitable_symbol_count / traded_symbol_count if traded_symbol_count else 0.0
+    )
+    out["universe_size"] = len(prepared)
+    return out
+
+
+def _open_portfolio_position(
+    ledger,
+    risk_policy,
+    capital: float,
+    buying_power: float,
+    sig,
+    params: dict,
+    entry_price: float,
+    entry_date: date,
+) -> tuple[float, float]:
+    if not risk_policy.approve(sig, capital, ledger.current_heat(sig.market), params):
+        return capital, buying_power
+
+    size = risk_policy.size(capital, sig, params, ledger)
+    if size <= 0:
+        return capital, buying_power
+
+    # Cap size to available buying power
+    position_value = size * entry_price
+    if position_value > buying_power:
+        from config import MARKET_CONFIGS
+        cfg = MARKET_CONFIGS.get(sig.market)
+        lot_size = cfg.lot_size if cfg else 1
+        size = int((buying_power / entry_price) // lot_size) * lot_size
+        if size <= 0:
+            return capital, buying_power
+        position_value = size * entry_price
+
+    buying_power -= position_value
+    ledger.register_fill(
+        Position(
+            signal=sig,
+            entry_price=entry_price,
+            entry_date=entry_date,
+            size=size,
+        )
+    )
+    return capital, buying_power
+
+
+def _bar_to_dict(bar: pd.Series, df: pd.DataFrame) -> dict:
+    return {
+        "open": float(bar["open"]),
+        "high": float(bar["high"]),
+        "low": float(bar["low"]),
+        "close": float(bar["close"]),
+        "ema5": float(bar["_ema5"]) if "_ema5" in df.columns else None,
+        "ema10": float(bar["_ema10"]) if "_ema10" in df.columns else None,
+    }
 
 
 def _calc_size(capital: float, sig, params: dict) -> int:

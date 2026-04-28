@@ -6,11 +6,49 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from datetime import date, timedelta
+
+from joblib import Parallel, delayed
 
 from markets.base import MarketAdapter
 
 logger = logging.getLogger(__name__)
+
+_LEARN_BASE = {
+    "sl_atr_mult": 1.5,
+    "ema_exit_period": 10,
+    "ema_exit_always": True,
+    "tp1_atr_mult": 999.0,
+    "tp2_atr_mult": 999.0,
+    "tp1_partial_pct": 1.0,
+    "tp2_partial_pct": 1.0,
+    "trail_atr_mult": 999.0,
+    "be_trigger_atr_mult": 999.0,
+    "be_after_bars": 0,
+    "max_bars": 500,
+    "risk_pct": 0.005,
+    "trend_sma_period": 0,
+    "rvol_min": 0.0,
+}
+
+_LEARN_PHASES = [
+    ("EMA10 exit only",      {}),
+    ("+ SMA50 trend filter", {"trend_sma_period": 50}),
+    ("+ RVol >=1.5x filter", {"trend_sma_period": 50, "rvol_min": 1.5}),
+]
+
+
+def _slice_dfs(dfs: list, start: date, end: date) -> list:
+    import pandas as pd
+    out = []
+    ts_start, ts_end = pd.Timestamp(start), pd.Timestamp(end)
+    for df in dfs:
+        sl = df[(df.index >= ts_start) & (df.index < ts_end)].copy()
+        sl.attrs = df.attrs
+        if len(sl) >= 60:
+            out.append(sl)
+    return out
 
 
 def _fetch_benchmark(adapter: MarketAdapter, start: date, end: date):
@@ -50,6 +88,48 @@ def _load_live_params(market: str, strategy_id: str) -> dict | None:
     finally:
         db.close()
     return None
+
+
+def _optimise_strategy_task(
+    market: str,
+    strategy_id: str,
+    strategy_cls,
+    market_dfs: list,
+    capital: float,
+) -> dict:
+    from validation.optimizer import walk_forward_optimise_market
+    from validation.consistency import check_consistency_market
+
+    strategy = strategy_cls()
+    opt = walk_forward_optimise_market(market_dfs, strategy, initial_capital=capital, n_jobs=1)
+
+    if opt["status"] == "no_windows":
+        return {
+            "strategy_id": strategy_id,
+            "status": "no_windows",
+            "opt": opt,
+            "consistency": None,
+            "is_live": False,
+            "metrics": {},
+        }
+
+    consistency = check_consistency_market(market_dfs, strategy, opt["best_params"], capital)
+    metrics = opt.get("best_metrics", {})
+    is_live = opt["status"] == "ok" and consistency["pass"]
+
+    return {
+        "strategy_id": strategy_id,
+        "status": opt["status"],
+        "opt": opt,
+        "consistency": consistency,
+        "is_live": is_live,
+        "metrics": metrics,
+    }
+
+
+def _strategy_job_count(args: argparse.Namespace, total_strategies: int) -> int:
+    requested = max(int(getattr(args, "strategy_jobs", 1) or 1), 1)
+    return min(requested, total_strategies)
 
 
 def cmd_scan(adapter: MarketAdapter, args: argparse.Namespace) -> list:
@@ -184,10 +264,7 @@ def cmd_diagnose(adapter: MarketAdapter, args: argparse.Namespace) -> None:
 def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     import strategies  # noqa: F401
     from core.registry import StrategyRegistry
-    from validation.optimizer import walk_forward_optimise_market
-    from validation.consistency import check_consistency_market
     from db.models import SessionLocal, StrategyParamsModel
-    from config import SELECTION_GATE
 
     market = adapter.market_id
     today = date.today()
@@ -231,20 +308,31 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
                 market.upper(), len(market_dfs), len(universe))
 
     total_strategies = len(strategies_map)
-    for idx, (strategy_id, strategy_cls) in enumerate(strategies_map.items(), start=1):
-        strategy = strategy_cls()
-        logger.info("[%d/%d] optimising %s across %d symbols",
+    strategy_items = list(strategies_map.items())
+    outer_jobs = _strategy_job_count(args, len(strategy_items))
+    logger.info(
+        "=== %s optimise compute | strategy_jobs=%d param_jobs=1 ===",
+        market.upper(), outer_jobs,
+    )
+
+    results = Parallel(n_jobs=outer_jobs)(
+        delayed(_optimise_strategy_task)(market, strategy_id, strategy_cls, market_dfs, args.capital)
+        for strategy_id, strategy_cls in strategy_items
+    )
+
+    for idx, result in enumerate(results, start=1):
+        strategy_id = result["strategy_id"]
+        logger.info("[%d/%d] optimised %s across %d symbols",
                     idx, total_strategies, strategy_id, len(market_dfs))
 
-        opt = walk_forward_optimise_market(market_dfs, strategy, initial_capital=args.capital)
-
-        if opt["status"] == "no_windows":
+        opt = result["opt"]
+        if result["status"] == "no_windows":
             logger.warning("  → no valid windows, skipping DB write")
             continue
 
-        consistency = check_consistency_market(market_dfs, strategy, opt["best_params"], args.capital)
-        m = opt.get("best_metrics", {})
-        is_live = opt["status"] == "ok" and consistency["pass"]
+        consistency = result["consistency"]
+        m = result["metrics"]
+        is_live = result["is_live"]
 
         logger.info(
             "  → score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d symbols=%d/%d profitable=%.0f%% | "
@@ -487,10 +575,96 @@ def cmd_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     _print_report(adapter.market_id, universe_hint, strategies_map)
 
 
+def cmd_quick_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    import strategies  # noqa: F401
+    from core.registry import StrategyRegistry
+    from validation.backtest import run_portfolio_backtest
+
+    market = adapter.market_id
+    today = date.today()
+
+    y1_end,  y1_start = today,    today - timedelta(days=365)
+    y2_end,  y2_start = y1_start, today - timedelta(days=730)
+    y3_end,  y3_start = y2_start, today - timedelta(days=1095)
+
+    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
+    strategies_map = StrategyRegistry.for_market(market)
+
+    logger.info("=== %s quick-report | %s | symbols=%d strategies=%d ===",
+                market.upper(), today, len(universe), len(strategies_map))
+
+    bm_close = _fetch_benchmark(adapter, y3_start, today)
+
+    all_dfs = []
+    for idx, symbol in enumerate(universe, start=1):
+        logger.info("[%d/%d] fetching %s (3yr history)", idx, len(universe), symbol)
+        df = adapter.ohlcv(symbol, y3_start, today)
+        df = _attach_benchmark(df, bm_close)
+        if df.empty or len(df) < 60:
+            continue
+        df.attrs = {"symbol": symbol, "market": market}
+        all_dfs.append(df)
+
+    if not all_dfs:
+        logger.warning("=== no eligible symbols for %s quick-report ===", market.upper())
+        return
+
+    windows = [
+        (f"Y1 {y1_start}>{y1_end}", _slice_dfs(all_dfs, y1_start, y1_end)),
+        (f"Y2 {y2_start}>{y2_end}", _slice_dfs(all_dfs, y2_start, y2_end)),
+        (f"Y3 {y3_start}>{y3_end}", _slice_dfs(all_dfs, y3_start, y3_end)),
+    ]
+
+    W = 110
+    STRAT_W = 22
+
+    print("\n" + "=" * W)
+    print(f"  {market.upper()} QUICK REPORT — {today}")
+    print(f"  Universe: {len(all_dfs)} symbols  |  Strategies: {len(strategies_map)}")
+    print(f"  Entry: strategy signal  |  Exit: close<EMA10 OR SL(1.5xATR)  |  No TP / No Partial / No Trail")
+    print("=" * W)
+
+    for phase_label, phase_overrides in _LEARN_PHASES:
+        phase_params = {**_LEARN_BASE, **phase_overrides}
+        print(f"\n  -- {phase_label} --")
+
+        wl_line = "  " + " " * STRAT_W
+        for wl, _ in windows:
+            wl_line += f"  {wl:<28}"
+        print(wl_line)
+
+        sub_hdr = "  " + f"{'Strategy':<{STRAT_W}}"
+        for _ in windows:
+            sub_hdr += f"  {'Ret':>7} {'DD':>6} {'Tr':>4} {'WR':>4}"
+        print(sub_hdr)
+        print("  " + "-" * (W - 4))
+
+        for strategy_id, strategy_cls in strategies_map.items():
+            strategy = strategy_cls()
+            params = {**strategy.default_params, **phase_params}
+            row = f"  {strategy_id:<{STRAT_W}}"
+            for _, wdfs in windows:
+                if wdfs:
+                    agg = run_portfolio_backtest(wdfs, strategy, params, initial_capital=args.capital)
+                    ret = agg.get("annual_return", 0.0) * 100
+                    dd  = agg.get("max_drawdown", 0.0) * 100
+                    tr  = agg.get("trade_count", 0)
+                    wr  = agg.get("win_rate", 0.0) * 100
+                    row += f"  {ret:>+7.1f} {dd:>6.1f} {tr:>4d} {wr:>4.0f}%"
+                else:
+                    row += f"  {'N/A':>7} {'N/A':>6} {'N/A':>4} {'N/A':>4}"
+            print(row)
+
+    print("\n" + "=" * W)
+    print("  SMA filter (phase 2+) affects: pivot_breakout, pullback_buy, narrow_range, bb_squeeze")
+    print("  RVol filter (phase 3)  affects: pivot_breakout, ma_cross, reversal, trendline_breakout")
+    print("=" * W + "\n")
+
+
 def make_parser(market_id: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=f"{market_id.upper()} market pipeline")
     parser.add_argument("command",
-                        choices=["scan", "diagnose", "optimise", "paper", "validate", "live", "report"])
+                        choices=["scan", "diagnose", "optimise", "paper", "validate", "live", "report", "quick-report"])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--symbols", type=int,
@@ -507,5 +681,6 @@ def run(adapter: MarketAdapter, command: str, args: argparse.Namespace) -> None:
         "validate": lambda: (cmd_optimise(adapter, args), cmd_paper(adapter, args)),
         "live":     lambda: cmd_scan(adapter, args),
         "report":   lambda: cmd_report(adapter, args),
+        "quick-report": lambda: cmd_quick_report(adapter, args),
     }
     dispatch.get(command, lambda: cmd_scan(adapter, args))()
