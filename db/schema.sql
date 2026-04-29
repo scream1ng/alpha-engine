@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS strategy_params (
     backtest_calmar NUMERIC,
     backtest_pf     NUMERIC,
     backtest_winrate NUMERIC,
+    yearly_summary  JSONB       DEFAULT '{}',
     consistency_pass BOOLEAN,
     paper_gate_pass  BOOLEAN,
     is_live         BOOLEAN     NOT NULL DEFAULT FALSE,

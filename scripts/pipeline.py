@@ -26,7 +26,7 @@ _LEARN_BASE = {
     "trail_atr_mult": 999.0,
     "be_trigger_atr_mult": 999.0,
     "be_after_bars": 0,
-    "max_bars": 500,
+    "max_bars": 0,
     "risk_pct": 0.005,
     "trend_sma_period": 0,
     "rvol_min": 0.0,
@@ -36,6 +36,19 @@ _LEARN_PHASES = [
     ("EMA10 exit only",      {}),
     ("+ SMA50 trend filter", {"trend_sma_period": 50}),
     ("+ RVol >=1.5x filter", {"trend_sma_period": 50, "rvol_min": 1.5}),
+    ("+ RSM >=75 filter",   {"trend_sma_period": 50, "rvol_min": 1.5, "rsm_min": 75}),
+    ("+ TP/BE risk mgmt",    {
+        "trend_sma_period":    50,
+        "rvol_min":            1.5,
+        "rsm_min":             75,
+        "sl_atr_mult":         1.0,
+        "tp1_atr_mult":        2.0,
+        "tp1_partial_pct":     0.3,
+        "tp2_atr_mult":        4.0,
+        "tp2_partial_pct":     0.3,
+        "be_after_bars":       3,
+        "be_trigger_atr_mult": 999.0,  # price-based BE disabled; use bars-based only
+    }),
 ]
 
 
@@ -90,22 +103,48 @@ def _load_live_params(market: str, strategy_id: str) -> dict | None:
     return None
 
 
+def _load_saved_params_map(db, market: str) -> dict[str, dict]:
+    from db.models import StrategyParamsModel
+
+    rows = db.query(StrategyParamsModel).filter_by(market=market).all()
+    return {row.strategy: dict(row.params or {}) for row in rows}
+
+
+def _optimise_mode_config(strategy, command: str, saved_params: dict | None = None) -> tuple[dict | None, dict | None, str]:
+    if command == "optimise-filter":
+        return dict(strategy.default_params), strategy.filter_param_space(), "filter"
+    if command == "optimise-risk":
+        return dict(saved_params or strategy.default_params), strategy.risk_param_space(), "risk"
+    return None, None, "full"
+
+
 def _optimise_strategy_task(
     market: str,
     strategy_id: str,
     strategy_cls,
     market_dfs: list,
     capital: float,
+    command: str,
+    saved_params: dict | None = None,
 ) -> dict:
     from validation.optimizer import walk_forward_optimise_market
     from validation.consistency import check_consistency_market
 
     strategy = strategy_cls()
-    opt = walk_forward_optimise_market(market_dfs, strategy, initial_capital=capital, n_jobs=1)
+    base_params, param_space, mode_label = _optimise_mode_config(strategy, command, saved_params)
+    opt = walk_forward_optimise_market(
+        market_dfs,
+        strategy,
+        initial_capital=capital,
+        param_space=param_space,
+        base_params=base_params,
+        n_jobs=1,
+    )
 
     if opt["status"] == "no_windows":
         return {
             "strategy_id": strategy_id,
+            "mode": mode_label,
             "status": "no_windows",
             "opt": opt,
             "consistency": None,
@@ -119,6 +158,7 @@ def _optimise_strategy_task(
 
     return {
         "strategy_id": strategy_id,
+        "mode": mode_label,
         "status": opt["status"],
         "opt": opt,
         "consistency": consistency,
@@ -130,6 +170,48 @@ def _optimise_strategy_task(
 def _strategy_job_count(args: argparse.Namespace, total_strategies: int) -> int:
     requested = max(int(getattr(args, "strategy_jobs", 1) or 1), 1)
     return min(requested, total_strategies)
+
+
+def _build_yearly_summary(
+    dfs: list,
+    strategy,
+    params: dict,
+    capital: float,
+    as_of: date,
+) -> dict:
+    from validation.backtest import run_portfolio_backtest
+
+    windows = [
+        ("y1", as_of - timedelta(days=365), as_of),
+        ("y2", as_of - timedelta(days=730), as_of - timedelta(days=365)),
+        ("y3", as_of - timedelta(days=1095), as_of - timedelta(days=730)),
+    ]
+
+    summary: dict[str, dict] = {}
+    for key, start, end in windows:
+        window_dfs = _slice_dfs(dfs, start, end)
+        if not window_dfs:
+            summary[key] = {
+                "start": str(start),
+                "end": str(end),
+                "annual_return": None,
+                "max_drawdown": None,
+                "trade_count": 0,
+                "win_rate": None,
+            }
+            continue
+
+        agg = run_portfolio_backtest(window_dfs, strategy, params, initial_capital=capital)
+        summary[key] = {
+            "start": str(start),
+            "end": str(end),
+            "annual_return": agg.get("annual_return"),
+            "max_drawdown": agg.get("max_drawdown"),
+            "trade_count": agg.get("trade_count", 0),
+            "win_rate": agg.get("win_rate"),
+        }
+
+    return summary
 
 
 def cmd_scan(adapter: MarketAdapter, args: argparse.Namespace) -> list:
@@ -316,7 +398,7 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     )
 
     results = Parallel(n_jobs=outer_jobs)(
-        delayed(_optimise_strategy_task)(market, strategy_id, strategy_cls, market_dfs, args.capital)
+        delayed(_optimise_strategy_task)(market, strategy_id, strategy_cls, market_dfs, args.capital, "optimise")
         for strategy_id, strategy_cls in strategy_items
     )
 
@@ -333,6 +415,8 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         consistency = result["consistency"]
         m = result["metrics"]
         is_live = result["is_live"]
+        strategy = strategies_map[strategy_id]()
+        yearly_summary = _build_yearly_summary(market_dfs, strategy, opt["best_params"], args.capital, today)
 
         logger.info(
             "  → score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d symbols=%d/%d profitable=%.0f%% | "
@@ -375,6 +459,7 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         row.backtest_avg_win = m.get("avg_win")
         row.backtest_avg_loss = m.get("avg_loss")
         row.backtest_max_dd = m.get("max_drawdown")
+        row.yearly_summary = yearly_summary
         row.consistency_pass = consistency["pass"]
         row.is_live = is_live
         db.commit()
@@ -386,20 +471,163 @@ def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     _print_report(market, universe, strategies_map)
 
 
+def _cmd_optimise_mode(adapter: MarketAdapter, args: argparse.Namespace, command: str) -> None:
+    import strategies  # noqa: F401
+    from core.registry import StrategyRegistry
+    from db.models import SessionLocal, StrategyParamsModel
+
+    market = adapter.market_id
+    today = date.today()
+    history_start = today - timedelta(days=365 * 5)
+
+    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
+    strategies_map = StrategyRegistry.for_market(market)
+
+    logger.info("=== %s %s | %s | symbols=%d strategies=%d ===",
+                market.upper(), command, today, len(universe), len(strategies_map))
+
+    bm_close = _fetch_benchmark(adapter, history_start, today)
+
+    db = SessionLocal()
+    saved_params_map = _load_saved_params_map(db, market)
+    market_dfs = []
+
+    for idx, symbol in enumerate(universe, start=1):
+        logger.info("[%d/%d] fetching %s (5yr history)", idx, len(universe), symbol)
+        df = adapter.ohlcv(symbol, history_start, today)
+        df = _attach_benchmark(df, bm_close)
+
+        if df.empty:
+            logger.warning("  %s — no data returned, skipping", symbol)
+            continue
+        if len(df) < 300:
+            logger.warning("  %s — only %d bars (need 300+), skipping", symbol, len(df))
+            continue
+
+        logger.info("  %s — %d bars (%s → %s)", symbol, len(df),
+                    df.index[0].date(), df.index[-1].date())
+        df.attrs = {"symbol": symbol, "market": market}
+        market_dfs.append(df)
+
+    if not market_dfs:
+        db.close()
+        logger.warning("=== no eligible symbols for %s %s ===", market.upper(), command)
+        return
+
+    logger.info("=== %s %s sample | eligible symbols=%d/%d ===",
+                market.upper(), command, len(market_dfs), len(universe))
+
+    total_strategies = len(strategies_map)
+    strategy_items = list(strategies_map.items())
+    outer_jobs = _strategy_job_count(args, len(strategy_items))
+    logger.info(
+        "=== %s %s compute | strategy_jobs=%d param_jobs=1 ===",
+        market.upper(), command, outer_jobs,
+    )
+
+    results = Parallel(n_jobs=outer_jobs)(
+        delayed(_optimise_strategy_task)(
+            market,
+            strategy_id,
+            strategy_cls,
+            market_dfs,
+            args.capital,
+            command,
+            saved_params_map.get(strategy_id),
+        )
+        for strategy_id, strategy_cls in strategy_items
+    )
+
+    for idx, result in enumerate(results, start=1):
+        strategy_id = result["strategy_id"]
+        logger.info("[%d/%d] %s %s across %d symbols",
+                    idx, total_strategies, command, strategy_id, len(market_dfs))
+
+        opt = result["opt"]
+        if result["status"] == "no_windows":
+            logger.warning("  → no valid windows, skipping DB write")
+            continue
+
+        consistency = result["consistency"]
+        m = result["metrics"]
+        is_live = result["is_live"]
+        strategy = strategies_map[strategy_id]()
+        yearly_summary = _build_yearly_summary(market_dfs, strategy, opt["best_params"], args.capital, today)
+
+        logger.info(
+            "  → mode=%s score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d symbols=%d/%d profitable=%.0f%% | consistency=%s | gate=%s | is_live=%s",
+            result["mode"],
+            opt.get("best_score", 0),
+            m.get("sharpe", 0), m.get("calmar", 0),
+            m.get("profit_factor", 0), (m.get("win_rate", 0) or 0) * 100,
+            m.get("trade_count", 0),
+            m.get("traded_symbol_count", 0), m.get("sampled_symbol_count", 0),
+            (m.get("profitable_symbol_rate", 0) or 0) * 100,
+            "PASS" if consistency["pass"] else f"FAIL({consistency.get('reason', '')})",
+            opt["status"].upper(),
+            "YES" if is_live else "NO",
+        )
+
+        row = (
+            db.query(StrategyParamsModel)
+            .filter_by(market=market, strategy=strategy_id)
+            .first()
+        )
+        if not row:
+            row = StrategyParamsModel(market=market, strategy=strategy_id)
+            db.add(row)
+
+        new_score = opt.get("best_score") or 0
+        row.params = opt["best_params"]
+        row.backtest_score = new_score
+        row.backtest_annual_return = m.get("annual_return")
+        row.backtest_sharpe = m.get("sharpe")
+        row.backtest_calmar = m.get("calmar")
+        row.backtest_pf = m.get("profit_factor")
+        row.backtest_winrate = m.get("win_rate")
+        row.backtest_trade_count = m.get("trade_count")
+        row.backtest_avg_win = m.get("avg_win")
+        row.backtest_avg_loss = m.get("avg_loss")
+        row.backtest_max_dd = m.get("max_drawdown")
+        row.yearly_summary = yearly_summary
+        row.consistency_pass = consistency["pass"]
+        row.is_live = is_live
+        db.commit()
+        logger.info("  → saved to DB (score=%.3f is_live=%s)", new_score, is_live)
+
+    db.close()
+    logger.info("=== %s complete | mode=%s strategies=%d symbols=%d ===",
+                market.upper(), command, total_strategies, len(market_dfs))
+
+    _print_report(market, universe, strategies_map)
+
+
+def cmd_optimise_filter(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    _cmd_optimise_mode(adapter, args, "optimise-filter")
+
+
+def cmd_optimise_risk(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    _cmd_optimise_mode(adapter, args, "optimise-risk")
+
+
 def _print_report(market: str, universe: list, strategies_map: dict) -> None:
     import strategies as _strats  # noqa: F401
     from db.models import SessionLocal as _SL, StrategyParamsModel as _SP
     from core.registry import StrategyRegistry as _SR
-    from config import SELECTION_GATE
+    from config import OPTIMIZER_OBJECTIVE, SELECTION_GATE
     from datetime import date as _date
 
     _db = _SL()
-    rows = _db.query(_SP).filter_by(market=market).order_by(_SP.backtest_score.desc()).all()
+    row_query = _db.query(_SP).filter_by(market=market)
+    if str(OPTIMIZER_OBJECTIVE or "").strip().lower() == "annual_return":
+        rows = row_query.order_by(_SP.backtest_annual_return.desc(), _SP.backtest_score.desc()).all()
+    else:
+        rows = row_query.order_by(_SP.backtest_score.desc(), _SP.backtest_annual_return.desc()).all()
     _db.close()
 
     _strat_map = _SR.for_market(market)
     g = SELECTION_GATE
-    W = 88
+    W = 156
 
     def _param_delta(optimised: dict, defaults: dict, keys: list[str]) -> str:
         parts = []
@@ -418,6 +646,44 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
     def _flag(ok: bool) -> str:
         return "✓" if ok else "✗"
 
+    def _fmt_pct(value: float | None, *, signed: bool = False, scale: float = 100.0) -> str:
+        number = float(value or 0.0) * scale
+        return f"{number:+.1f}%" if signed else f"{number:.1f}%"
+
+    def _fmt_num(value: float | None, digits: int = 2) -> str:
+        return f"{float(value or 0.0):.{digits}f}"
+
+    def _status_label(row) -> str:
+        if row.is_live:
+            return "LIVE"
+        if row.consistency_pass is False:
+            return "CONS"
+        if row.consistency_pass is True:
+            return "GATE"
+        return "HOLD"
+
+    def _year_metrics(row, key: str) -> dict:
+        summary = row.yearly_summary or {}
+        return summary.get(key, {}) if isinstance(summary, dict) else {}
+
+    def _year_cell(row, key: str) -> str:
+        annual_return = _year_metrics(row, key).get("annual_return")
+        return _fmt_pct(annual_return, signed=True) if annual_return is not None else "   N/A"
+
+    def _year_detail(row, key: str) -> str:
+        metrics = _year_metrics(row, key)
+        annual_return = metrics.get("annual_return")
+        if annual_return is None:
+            return f"{key.upper()} N/A"
+        max_dd = metrics.get("max_drawdown")
+        trades = int(metrics.get("trade_count", 0) or 0)
+        win_rate = metrics.get("win_rate")
+        wr_str = _fmt_pct(win_rate) if win_rate is not None else "N/A"
+        return (
+            f"{key.upper()} {_fmt_pct(annual_return, signed=True)} | "
+            f"DD {_fmt_pct(max_dd)} | Tr {trades} | WR {wr_str}"
+        )
+
     print("\n" + "=" * W)
     print(f"  {market.upper()} OPTIMISE REPORT — {_date.today()}")
     if universe:
@@ -425,16 +691,136 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
     else:
         print(f"  Strategies in DB: {len(rows)}  (reading saved results)")
     print("  Metrics: shared params per strategy, latest OOS window, median across sampled symbols")
+    print(f"  Optimiser objective: {OPTIMIZER_OBJECTIVE}")
     print("=" * W)
 
+    def _trend_label(params: dict) -> str:
+        trend_filter = params.get("trend_filter")
+        if trend_filter is not None:
+            raw = str(trend_filter).strip()
+            if raw in ("", "0", "off", "none"):
+                return "no trend filter"
+            if "_" in raw:
+                return " + ".join(f"SMA{part}" for part in raw.split("_")) + " uptrend filter"
+            return f"SMA{raw} uptrend filter"
+
+        trend_p = int(params.get("trend_sma_period", 0) or 0)
+        return f"SMA{trend_p} uptrend filter" if trend_p else "no trend filter"
+
+    def _short_trend_label(params: dict) -> str:
+        trend_filter = params.get("trend_filter")
+        if trend_filter is not None:
+            raw = str(trend_filter).strip()
+            if raw in ("", "0", "off", "none"):
+                return "off"
+            if "_" in raw:
+                return "+".join(f"S{part}" for part in raw.split("_"))
+            return f"S{raw}"
+
+        trend_p = int(params.get("trend_sma_period", 0) or 0)
+        return f"S{trend_p}" if trend_p else "off"
+
+    def _filter_summary(params: dict, *, include_trend: bool = True) -> str:
+        bits = []
+        if include_trend:
+            bits.append(f"Trend={_short_trend_label(params)}")
+        if "rvol_min" in params:
+            bits.append(f"RVol>={params['rvol_min']}")
+        elif "rvol_max_on_pullback" in params:
+            bits.append(f"RVol<={params['rvol_max_on_pullback']}")
+        if "rsm_min" in params and float(params.get("rsm_min", 0) or 0) > 0:
+            bits.append(f"RSM>={int(params['rsm_min'])}")
+        else:
+            bits.append("RSM=off")
+        return " | ".join(bits)
+
+    def _exit_summary(params: dict) -> str:
+        ema_period = int(params.get("ema_exit_period", 0) or 0)
+        be_after_bars = int(params.get("be_after_bars", 0) or 0)
+        be_trigger_atr = float(params.get("be_trigger_atr_mult", 0) or 0)
+        max_bars = int(params.get("max_bars", 0) or 0)
+        hard_stop_mode = str(params.get("hard_stop_mode", "both") or "both").lower()
+        be_label = f"BE {be_after_bars} bars" if be_after_bars else (f"BE {be_trigger_atr:g} ATR" if be_trigger_atr else "BE off")
+        ema_label = "EMA10" if hard_stop_mode == "ema10" else (f"EMA{ema_period}" if ema_period else "EMA off")
+        parts = [
+            f"SL {params.get('sl_atr_mult', '?')} ATR | "
+            f"TP1 {params.get('tp1_atr_mult', '?')} ATR @ {int((params.get('tp1_partial_pct', 0.5) or 0) * 100)}% | "
+            f"TP2 {params.get('tp2_atr_mult', '?')} ATR @ {int((params.get('tp2_partial_pct', 1.0) or 0) * 100)}% | "
+            f"{be_label}"
+        ]
+        if hard_stop_mode in ("both", "trail"):
+            parts.append(f"Trail {params.get('trail_atr_mult', '?')} ATR")
+        if hard_stop_mode in ("both", "ema10"):
+            parts.append(ema_label)
+        if hard_stop_mode in ("trail", "ema10"):
+            parts.append(f"HardStop {hard_stop_mode.upper()}")
+        if max_bars > 0:
+            parts.append(f"TimeStop {max_bars} bars")
+        parts.append(f"Risk {_fmt_pct(params.get('risk_pct', 0), scale=100.0)}")
+        return " | ".join(parts)
+
+    leaderboard = []
+    for row in rows:
+        params = row.params or {}
+        leaderboard.append({
+            "row": row,
+            "strategy": row.strategy,
+            "status": _status_label(row),
+            "ret": float(row.backtest_annual_return or 0.0),
+            "dd": float(row.backtest_max_dd or 0.0),
+            "trades": int(row.backtest_trade_count or 0),
+            "pf": float(row.backtest_pf or 0.0),
+            "wr": float(row.backtest_winrate or 0.0),
+            "score": float(row.backtest_score or 0.0),
+            "y1": _year_cell(row, "y1"),
+            "y2": _year_cell(row, "y2"),
+            "y3": _year_cell(row, "y3"),
+            "filters": _filter_summary(params),
+            "exits": _exit_summary(params),
+        })
+
+    print("  LEADERBOARD")
+    print("  " + "-" * (W - 4))
+    print(
+        "  "
+        f"{'#':>2}  {'Strategy':<20} {'St':<5} {'Ret':>8} {'DD':>7} {'Tr':>5} {'PF':>5} {'WR':>5} {'Score':>7} {'Y1':>8} {'Y2':>8} {'Y3':>8}  Filters"
+    )
+    print("  " + "-" * (W - 4))
+
     live_count = 0
-    for r in rows:
+    for idx, item in enumerate(leaderboard, start=1):
+        row = item["row"]
+        if row.is_live:
+            live_count += 1
+        print(
+            "  "
+            f"{idx:>2}  {item['strategy']:<20} {item['status']:<5} "
+            f"{_fmt_pct(item['ret'], signed=True):>8} "
+            f"{_fmt_pct(item['dd']):>7} "
+            f"{item['trades']:>5d} "
+            f"{_fmt_num(item['pf']):>5} "
+            f"{_fmt_pct(item['wr']):>5} "
+            f"{item['score']:>7.2f} "
+            f"{item['y1']:>8} {item['y2']:>8} {item['y3']:>8}  {item['filters']}"
+        )
+
+    print("  " + "-" * (W - 4))
+    print(
+        "  Gate: "
+        f"Ret≥{g['min_annual_return']*100:.0f}%  Sharpe≥{g['min_sharpe']}  Calmar≥{g['min_calmar']}  "
+        f"PF≥{g['min_profit_factor']}  WR≥{g['min_win_rate']*100:.0f}%  Trades≥{g['min_trades']}"
+    )
+
+    print("\n  DETAILS")
+    print("  " + "-" * (W - 4))
+
+    for item in leaderboard:
+        r = item["row"]
         p = r.params or {}
         defaults = _strat_map[r.strategy]().default_params if r.strategy in _strat_map else {}
 
         if r.is_live:
             status = "LIVE ✓"
-            live_count += 1
         elif r.consistency_pass is False:
             status = "not live — consistency fail"
         elif r.consistency_pass is True:
@@ -460,19 +846,10 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
         wr_ok     = (r.backtest_winrate or 0) >= g["min_win_rate"]
 
         print(f"\n  ┌─ {r.strategy.upper()}  [{status}]")
-        print(f"  │  OOS Return: {ann_ret:+.1f}%{_flag(ann_ok)}(≥{g['min_annual_return']*100:.0f}%)  "
-              f"MaxDD={max_dd:.1f}%  "
-              f"Trades={r.backtest_trade_count or 0}")
-        print(f"  │  Trade pct:  "
-              f"AvgWin={(r.backtest_avg_win or 0) * 100:+.1f}%  "
-              f"AvgLoss={(r.backtest_avg_loss or 0) * 100:+.1f}%  "
-              f"Ratio={abs(r.backtest_avg_win or 0) / abs(r.backtest_avg_loss or 1):.2f}x")
-        print(f"  │  Quality  :  "
-              f"Sharpe={r.backtest_sharpe or 0:.2f}{_flag(sharpe_ok)}(≥{g['min_sharpe']})  "
-              f"Calmar={r.backtest_calmar or 0:.1f}{_flag(calmar_ok)}(≥{g['min_calmar']})  "
-              f"PF={r.backtest_pf or 0:.2f}{_flag(pf_ok)}(≥{g['min_profit_factor']})  "
-              f"WR={((r.backtest_winrate or 0)*100):.0f}%{_flag(wr_ok)}(≥{g['min_win_rate']*100:.0f}%)  "
-              f"Score={r.backtest_score or 0:.1f}")
+        print(f"  │  Return sheet : Ret {ann_ret:+.1f}%{_flag(ann_ok)}  DD {max_dd:.1f}%  Trades {r.backtest_trade_count or 0}  Score {r.backtest_score or 0:.2f}")
+        print(f"  │  Year view     : {_year_detail(r, 'y1')}  ||  {_year_detail(r, 'y2')}  ||  {_year_detail(r, 'y3')}")
+        print(f"  │  Quality      : Sharpe {r.backtest_sharpe or 0:.2f}{_flag(sharpe_ok)}  Calmar {r.backtest_calmar or 0:.2f}{_flag(calmar_ok)}  PF {r.backtest_pf or 0:.2f}{_flag(pf_ok)}  WR {((r.backtest_winrate or 0)*100):.0f}%{_flag(wr_ok)}")
+        print(f"  │  Trade stats  : AvgWin {(r.backtest_avg_win or 0) * 100:+.1f}%  AvgLoss {(r.backtest_avg_loss or 0) * 100:+.1f}%  Win/Loss {abs(r.backtest_avg_win or 0) / abs(r.backtest_avg_loss or 1):.2f}x")
 
         if p:
             sig_keys = ["nr_period", "atr_pct_max", "psth", "lookback",
@@ -480,27 +857,14 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
                         "fast_period", "slow_period", "trend_period",
                         "rsi_threshold", "consec_down_days", "rvol_min",
                         "pullback_atr_band", "rvol_max_on_pullback", "body_pct_min",
-                        "rsm_min", "trend_sma_period"]
+                        "rsm_min", "trend_filter", "trend_sma_period"]
             sig_str = _param_delta(p, defaults, sig_keys)
             if sig_str:
-                print(f"  │  Signal filter:  {sig_str}")
+                print(f"  │  Signal config : {sig_str}")
 
-            print(f"  │  Entry → Exit :")
-            print(f"  │    SL     = {sl}×ATR  (cut loss here)")
-            trend_p = p.get("trend_sma_period", 0)
-            trend_str = f"SMA{trend_p} uptrend filter" if trend_p else "no trend filter"
-            tp1_pct  = int(p.get("tp1_partial_pct", 0.5) * 100)
-            tp2_pct  = int(p.get("tp2_partial_pct", 1.0) * 100)
-            after_tp1 = 100 - tp1_pct
-            after_tp2 = after_tp1 - int(after_tp1 * p.get("tp2_partial_pct", 1.0))
-            print(f"  │    Trend  = {trend_str}")
-            print(f"  │    TP1    = {tp1}×ATR  → sell {tp1_pct}%,  {after_tp1}% remains,  SL→breakeven")
-            print(f"  │    TP2    = {tp2}×ATR  → sell {tp2_pct}% of remaining"
-                  + (f",  {after_tp2}% trails to stop" if after_tp2 > 0 else "  (full close)"))
-            print(f"  │    Trail  = {trail}×ATR  (trailing stop on remainder after TP1)")
-            print(f"  │    EMA    = {ema_str}  (hard exit if close < EMA after TP1)")
-            print(f"  │    Time   = exit after {p.get('max_bars','?')} bars (no TP hit)")
-            print(f"  │  Risk     :  {risk_pct*100:.2f}% capital per trade  |  Raw RR = {rr_raw}:1  (TP1/SL)")
+            trend_str = _trend_label(p)
+            print(f"  │  Filters      : {trend_str}  |  {_filter_summary(p, include_trend=False)}")
+            print(f"  │  Exit plan    : {_exit_summary(p)}  |  Raw RR {rr_raw}:1")
 
             changed = []
             for k, ov in p.items():
@@ -509,7 +873,7 @@ def _print_report(market: str, universe: list, strategies_map: dict) -> None:
                     if abs(ov - dv) > 1e-9:
                         changed.append(f"{k}: {dv}→{ov}")
             if changed:
-                print(f"  │  Optimizer changed: {', '.join(changed)}")
+                print(f"  │  Optimizer delta: {', '.join(changed)}")
 
         print(f"  └{'─' * (W - 4)}")
 
@@ -656,15 +1020,17 @@ def cmd_quick_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             print(row)
 
     print("\n" + "=" * W)
-    print("  SMA filter (phase 2+) affects: pivot_breakout, pullback_buy, narrow_range, bb_squeeze")
-    print("  RVol filter (phase 3)  affects: pivot_breakout, ma_cross, reversal, trendline_breakout")
+    print("  SMA filter (phase 2+) affects: pivot_breakout, trendline_breakout, pullback_buy, narrow_range, bb_squeeze")
+    print("  RVol filter (phase 3+) affects: pivot_breakout, ma_cross, reversal, trendline_breakout, narrow_range")
+    print("  RSM filter  (phase 4+) affects: all strategies (skipped for crypto/commodity)")
+    print("  TP/BE    (phase 5)   : SL=1xATR  TP1=2xATR@30%  TP2=4xATR@30%  BE after 3 bars")
     print("=" * W + "\n")
 
 
 def make_parser(market_id: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=f"{market_id.upper()} market pipeline")
     parser.add_argument("command",
-                        choices=["scan", "diagnose", "optimise", "paper", "validate", "live", "report", "quick-report"])
+                        choices=["scan", "diagnose", "optimise", "optimise-filter", "optimise-risk", "paper", "validate", "live", "report", "quick-report"])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--symbols", type=int,
@@ -677,6 +1043,8 @@ def run(adapter: MarketAdapter, command: str, args: argparse.Namespace) -> None:
         "scan":     lambda: cmd_scan(adapter, args),
         "diagnose": lambda: cmd_diagnose(adapter, args),
         "optimise": lambda: cmd_optimise(adapter, args),
+        "optimise-filter": lambda: cmd_optimise_filter(adapter, args),
+        "optimise-risk": lambda: cmd_optimise_risk(adapter, args),
         "paper":    lambda: cmd_paper(adapter, args),
         "validate": lambda: (cmd_optimise(adapter, args), cmd_paper(adapter, args)),
         "live":     lambda: cmd_scan(adapter, args),

@@ -7,17 +7,79 @@ from core.signal import Signal
 class Strategy(ABC):
     id: str
     default_params: dict
+    FILTER_PARAM_KEYS = (
+        "trend_filter",
+        "trend_sma_period",
+        "trend_period",
+        "sma_period",
+        "rvol_min",
+        "rvol_max_on_pullback",
+        "rsm_min",
+    )
+    RISK_PARAM_KEYS = (
+        "sl_atr_mult",
+        "tp1_atr_mult",
+        "tp2_atr_mult",
+        "be_trigger_atr_mult",
+        "trail_atr_mult",
+        "hard_stop_mode",
+    )
+
+    def _subset_param_space(self, keys: tuple[str, ...]) -> dict:
+        return {key: values for key, values in self.param_space().items() if key in keys}
+
+    def filter_param_space(self) -> dict:
+        return self._subset_param_space(self.FILTER_PARAM_KEYS)
+
+    def risk_param_space(self) -> dict:
+        space = self._subset_param_space(self.RISK_PARAM_KEYS)
+        if "hard_stop_mode" not in space:
+            space["hard_stop_mode"] = ["trail", "ema10"]
+        return space
+
+    def _trend_periods(self, params: dict) -> list[int]:
+        mode = params.get("trend_filter")
+        if mode is None:
+            period = int(params.get("trend_sma_period", 0) or 0)
+            return [period] if period > 0 else []
+
+        if isinstance(mode, (int, float)):
+            period = int(mode)
+            return [period] if period > 0 else []
+
+        raw = str(mode).strip().lower()
+        if raw in ("", "0", "off", "none"):
+            return []
+
+        periods: list[int] = []
+        for token in raw.replace("sma", "").split("_"):
+            token = token.strip()
+            if not token:
+                continue
+            period = int(token)
+            if period > 0 and period not in periods:
+                periods.append(period)
+        return sorted(periods)
 
     def _in_uptrend(self, df: pd.DataFrame, params: dict) -> bool:
-        """Return False if trend filter is active and price is below the SMA."""
-        period = int(params.get("trend_sma_period", 0))
-        if period == 0:
+        """Return False if active trend filters do not confirm an uptrend."""
+        periods = self._trend_periods(params)
+        if not periods:
             return True
-        if len(df) < period:
+        if len(df) < max(periods):
             return True
         from core.indicators import sma
-        sma_val = float(sma(df, period).iloc[-1])
-        return float(df["close"].iloc[-1]) >= sma_val
+
+        close = float(df["close"].iloc[-1])
+        sma_values = [(period, float(sma(df, period).iloc[-1])) for period in periods]
+        if any(close < sma_val for _, sma_val in sma_values):
+            return False
+        if len(sma_values) < 2:
+            return True
+        return all(
+            faster_val >= slower_val
+            for (_, faster_val), (_, slower_val) in zip(sma_values, sma_values[1:])
+        )
 
     def _rsm_ok(self, df: pd.DataFrame, params: dict) -> bool:
         """Return False if RSM filter active and current RSM below threshold.
@@ -104,5 +166,6 @@ class Strategy(ABC):
             tp1_partial_pct=float(p.get("tp1_partial_pct", 0.5)),
             tp2_partial_pct=float(p.get("tp2_partial_pct", 1.0)),
             ema_exit_period=int(p.get("ema_exit_period", 0)),
+            hard_stop_mode=str(p.get("hard_stop_mode", "both")),
             generated_at=gen_date,
         )

@@ -1,5 +1,4 @@
 from __future__ import annotations
-import numpy as np
 import pandas as pd
 from strategies.base import Strategy
 from core.registry import StrategyRegistry
@@ -16,7 +15,7 @@ class TrendlineBreakout(Strategy):
     2. After the anchor, collect all subsequent swing highs that are lower than anchor.
     3. Active trendline = anchor → most recent lower swing high (fan rotates down).
     4. Signal when close breaks above the projected trendline value.
-    5. Invalidate entire setup if price crosses below SMA.
+    5. Invalidate setup if price loses the active trend filter.
     """
     id = "trendline_breakout"
     default_params = {
@@ -24,12 +23,12 @@ class TrendlineBreakout(Strategy):
         "swing_period": 3,          # bars each side to confirm a swing high
         "min_pivots": 1,            # need at least N lower pivots after anchor
         "rvol_min": 1.2,
-        "sma_period": 50,           # invalidation SMA
+        "trend_filter": 0,
         "sl_atr_mult": 1.5,
         "tp1_atr_mult": 2.0,
         "tp2_atr_mult": 3.5,
         "risk_pct": 0.005,
-        "max_bars": 15,
+        "max_bars": 0,
         "trail_atr_mult": 1.5,
         "be_trigger_atr_mult": 1.0,
         "rsm_min": 0,
@@ -53,17 +52,17 @@ class TrendlineBreakout(Strategy):
         if atr_val == 0:
             return []
 
+        if not self._in_uptrend(df, p):
+            return []
+
+        trend_periods = self._trend_periods(p)
+        trend_smas = [(period, sma(df, period).values) for period in trend_periods] if trend_periods else []
+
         highs = df["high"].values
         closes = df["close"].values
         n = len(df)
         current_idx = n - 1
         current_close = closes[current_idx]
-
-        # SMA invalidation check
-        sma_period = int(p["sma_period"])
-        _sma = sma(df, sma_period)
-        if current_close < float(_sma.iloc[-1]):
-            return []
 
         # Find swing highs: local max with swing_period bars on each side
         swing_highs: list[tuple[int, float]] = []
@@ -97,11 +96,9 @@ class TrendlineBreakout(Strategy):
         # Active trendline: anchor → most recent lower pivot
         pivot_idx, pivot_price = lower_pivots[-1]
 
-        # Check SMA didn't cross down between anchor and now
-        # (if any close between anchor and now was below SMA → invalidate)
-        sma_vals = _sma.values
+        # Check active trend filter held from anchor to now.
         for i in range(anchor_idx, current_idx):
-            if closes[i] < sma_vals[i]:
+            if any(closes[i] < sma_vals[i] for _, sma_vals in trend_smas):
                 return []
 
         # Project trendline to current bar
@@ -143,17 +140,16 @@ class TrendlineBreakout(Strategy):
             "anchor_lookback":     [40, 60, 80],
             "swing_period":        [2, 3, 4],
             "min_pivots":          [1, 2],
-            "rvol_min":            [1.0, 1.2, 1.5],
-            "sma_period":          [50, 100, 200],
+            "rvol_min":            [1.5, 2.0],
+            "trend_filter":        [0, 50, 100, 200, "50_100", "50_200", "100_200"],
             "sl_atr_mult":         [1.0, 1.5, 2.0],
             "tp1_atr_mult":        [1.5, 2.0, 2.5, 3.0],
             "tp2_atr_mult":        [3.0, 3.5, 4.0, 4.5, 5.0],
             "risk_pct":            [0.003, 0.005],
-            "max_bars":            [10, 15, 20],
             "trail_atr_mult":      [1.5, 2.0],
             "be_trigger_atr_mult": [0.5, 1.0],
             "ema_exit_period":     [0, 5, 10],
             "tp1_partial_pct":     [0.2, 0.3, 0.4, 0.5],
             "tp2_partial_pct":     [0.2, 0.3, 0.4, 0.5],
-            "rsm_min":             [0, 70, 75, 80],
+            "rsm_min":             [0, 75, 80],
         }

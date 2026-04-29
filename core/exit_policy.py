@@ -21,6 +21,9 @@ class HardExitPolicy(ExitPolicy):
         close = bar["close"]
         high = bar["high"]
         low = bar["low"]
+        hard_stop_mode = str(params.get("hard_stop_mode", getattr(sig, "hard_stop_mode", "both")) or "both").lower()
+        use_trail = hard_stop_mode in ("both", "trail")
+        use_ema = hard_stop_mode in ("both", "ema10")
 
         if sig.direction == "long":
             # 1. Hard SL
@@ -51,21 +54,23 @@ class HardExitPolicy(ExitPolicy):
                 position.sl_current = max(position.sl_current, sig.entry)
 
             # 5. Trailing stop update
-            position.highest_close = max(position.highest_close, close)
-            trail_sl = position.highest_close - sig.trail_atr_mult * sig.atr
-            if trail_sl > position.sl_current:
-                position.sl_current = trail_sl
+            if use_trail:
+                position.highest_close = max(position.highest_close, close)
+                trail_sl = position.highest_close - sig.trail_atr_mult * sig.atr
+                if trail_sl > position.sl_current:
+                    position.sl_current = trail_sl
 
             # 6. EMA exit — only active after TP1 hit (locks in partial profits)
-            ema_period = params.get("ema_exit_period", getattr(sig, "ema_exit_period", 0))
+            ema_period = 10 if hard_stop_mode == "ema10" else params.get("ema_exit_period", getattr(sig, "ema_exit_period", 0))
             ema_exit_always = bool(params.get("ema_exit_always", False))
-            if ema_period and (position.tp1_hit or ema_exit_always):
+            if use_ema and ema_period and (position.tp1_hit or ema_exit_always):
                 ema_val = bar.get(f"ema{ema_period}")
                 if ema_val is not None and close < ema_val:
                     return ExitSignal(reason=f"ema{ema_period}_exit", price=close)
 
-            # 7. Time stop
-            if position.bars_held >= params.get("max_bars", sig.max_bars):
+            # 7. Optional time stop
+            max_bars = int(params.get("max_bars", sig.max_bars) or 0)
+            if max_bars > 0 and position.bars_held >= max_bars:
                 return ExitSignal(reason="time_stop", price=close)
 
         else:  # short
@@ -88,17 +93,19 @@ class HardExitPolicy(ExitPolicy):
             be_after_bars = int(params.get("be_after_bars", 0) or 0)
             if be_after_bars and position.bars_held >= be_after_bars:
                 position.sl_current = min(position.sl_current, sig.entry)
-            position.highest_close = min(position.highest_close, close)
-            trail_sl = position.highest_close + sig.trail_atr_mult * sig.atr
-            if trail_sl < position.sl_current:
-                position.sl_current = trail_sl
-            ema_period = params.get("ema_exit_period", getattr(sig, "ema_exit_period", 0))
+            if use_trail:
+                position.highest_close = min(position.highest_close, close)
+                trail_sl = position.highest_close + sig.trail_atr_mult * sig.atr
+                if trail_sl < position.sl_current:
+                    position.sl_current = trail_sl
+            ema_period = 10 if hard_stop_mode == "ema10" else params.get("ema_exit_period", getattr(sig, "ema_exit_period", 0))
             ema_exit_always = bool(params.get("ema_exit_always", False))
-            if ema_period and (position.tp1_hit or ema_exit_always):
+            if use_ema and ema_period and (position.tp1_hit or ema_exit_always):
                 ema_val = bar.get(f"ema{ema_period}")
                 if ema_val is not None and close > ema_val:
                     return ExitSignal(reason=f"ema{ema_period}_exit", price=close)
-            if position.bars_held >= params.get("max_bars", sig.max_bars):
+            max_bars = int(params.get("max_bars", sig.max_bars) or 0)
+            if max_bars > 0 and position.bars_held >= max_bars:
                 return ExitSignal(reason="time_stop", price=close)
 
         return None

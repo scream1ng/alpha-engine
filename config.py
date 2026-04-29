@@ -102,6 +102,8 @@ PAPER_MIN_MONTHS = 3
 
 SELECTION_GATE = {
     "min_annual_return": 0.03,   # bootstrap gate for 6m OOS samples
+OPTIMIZER_OBJECTIVE = "annual_return"
+
     "min_sharpe": 0.0,
     "min_calmar": 0.0,
     "min_profit_factor": 1.05,

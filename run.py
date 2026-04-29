@@ -15,13 +15,24 @@ MARKETS = [
     ("all",       "All markets"),
 ]
 
-COMMANDS = [
-    ("report",   "View last optimise result (instant)"),
+INTERACTIVE_COMMANDS = [
     ("quick-report", "3yr annual return by strategy & filter phase"),
-    ("diagnose", "Check how many signals each strategy fires"),
-    ("optimise", "Walk-forward optimise — find best params"),
+    ("optimise-filter", "Phase 1 — optimise trend / RVol / RSM filters"),
+    ("optimise-risk", "Phase 2 — optimise SL / TP / BE / hard stop"),
+    ("report",   "View last optimise result (instant)"),
     ("scan",     "Generate today's signals (live strategies only)"),
     ("paper",    "Paper trading simulation (last 90 days)"),
+]
+
+CLI_COMMANDS = [
+    ("quick-report", "3yr annual return by strategy & filter phase"),
+    ("optimise", "Walk-forward optimise — find best params"),
+    ("optimise-filter", "Phase 1 — optimise trend / RVol / RSM filters"),
+    ("optimise-risk", "Phase 2 — optimise SL / TP / BE / hard stop"),
+    ("report",   "View last optimise result (instant)"),
+    ("scan",     "Generate today's signals (live strategies only)"),
+    ("paper",    "Paper trading simulation (last 90 days)"),
+    ("diagnose", "Check how many signals each strategy fires"),
     ("validate", "optimise + paper in sequence"),
 ]
 
@@ -92,12 +103,12 @@ def interactive() -> None:
     print("  ╚══════════════════════════════════════════════════════╝")
 
     market = _menu("SELECT MARKET", MARKETS)
-    command = _menu("SELECT COMMAND", COMMANDS)
+    command = _menu("SELECT COMMAND", INTERACTIVE_COMMANDS)
 
     # Capital stays as an internal sizing baseline; interactive flows default it.
     capital = 1_000_000
     symbols = None
-    if command in ("optimise", "validate", "diagnose", "paper"):
+    if command in ("optimise", "optimise-filter", "optimise-risk", "validate", "diagnose", "paper"):
         symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
 
     args = argparse.Namespace(capital=capital, symbols=symbols, dry_run=False, strategy_jobs=1)
@@ -116,7 +127,7 @@ def cli() -> None:
     """Non-interactive mode: python run.py th report"""
     parser = argparse.ArgumentParser(prog="python run.py")
     parser.add_argument("market", choices=[m for m, _ in MARKETS])
-    parser.add_argument("command", choices=[c for c, _ in COMMANDS])
+    parser.add_argument("command", choices=[c for c, _ in CLI_COMMANDS])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--symbols", type=int)
     parser.add_argument("--strategy-jobs", type=int, default=1)

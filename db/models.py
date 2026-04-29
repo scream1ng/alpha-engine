@@ -95,6 +95,7 @@ class StrategyParamsModel(Base):
     backtest_avg_win       = Column(Float)
     backtest_avg_loss      = Column(Float)
     backtest_max_dd        = Column(Float)
+    yearly_summary         = Column(_JsonType, default={})
     consistency_pass       = Column(Boolean)
     paper_gate_pass  = Column(Boolean)
     is_live          = Column(Boolean, nullable=False, default=False)
@@ -130,6 +131,7 @@ def init_db() -> None:
             "backtest_avg_win       REAL",
             "backtest_avg_loss      REAL",
             "backtest_max_dd        REAL",
+            "yearly_summary         JSON",
         ]
         with engine.connect() as conn:
             for col_def in new_cols:

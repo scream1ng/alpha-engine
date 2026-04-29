@@ -12,11 +12,37 @@ from validation.backtest import run_backtest
 from config import (
     WALKFORWARD_TRAIN_MONTHS,
     WALKFORWARD_TEST_MONTHS,
+    OPTIMIZER_OBJECTIVE,
     SCORING_WEIGHTS,
     SELECTION_GATE,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _objective_name() -> str:
+    objective = str(OPTIMIZER_OBJECTIVE or "annual_return").strip().lower()
+    return objective if objective in {"annual_return", "score"} else "annual_return"
+
+
+def _objective_value(metrics: dict) -> tuple[float, float, float, float, float, int]:
+    objective = _objective_name()
+    primary = float(metrics.get(objective, 0.0) or 0.0)
+    secondary = float(metrics.get("score", _composite_score(metrics)) or 0.0)
+    return (
+        primary,
+        secondary,
+        float(metrics.get("calmar", 0.0) or 0.0),
+        float(metrics.get("sharpe", 0.0) or 0.0),
+        float(metrics.get("profit_factor", 0.0) or 0.0),
+        int(metrics.get("trade_count", 0) or 0),
+    )
+
+
+def _effective_params(base_params: dict | None, params: dict) -> dict:
+    if not base_params:
+        return dict(params)
+    return {**base_params, **params}
 
 
 def _composite_score(metrics: dict) -> float:
@@ -53,15 +79,22 @@ def _passes_gate(metrics: dict) -> bool:
     )
 
 
-def _eval_params(df: pd.DataFrame, strategy: Strategy, params: dict, capital: float) -> dict:
+def _eval_params(
+    df: pd.DataFrame,
+    strategy: Strategy,
+    params: dict,
+    capital: float,
+    base_params: dict | None = None,
+) -> dict:
     try:
-        m = run_backtest(df, strategy, params, initial_capital=capital)
-        m["params"] = params
+        effective_params = _effective_params(base_params, params)
+        m = run_backtest(df, strategy, effective_params, initial_capital=capital)
+        m["params"] = effective_params
         m["score"] = _composite_score(m)
         return m
     except Exception as exc:
         logger.debug("param eval failed: %s", exc)
-        return {"score": -999, "params": params, "trade_count": 0}
+        return {"score": -999, "params": _effective_params(base_params, params), "trade_count": 0}
 
 
 def aggregate_market_metrics(metrics_list: list[dict], universe_size: int) -> dict:
@@ -156,21 +189,23 @@ def _eval_market_params(
     params: dict,
     capital: float,
     universe_size: int,
+    base_params: dict | None = None,
 ) -> dict:
     try:
+        effective_params = _effective_params(base_params, params)
         metrics_list = [
-            run_backtest(df, strategy, params, initial_capital=capital)
+            run_backtest(df, strategy, effective_params, initial_capital=capital)
             for df in dfs
         ]
         m = aggregate_market_metrics(metrics_list, universe_size=universe_size)
-        m["params"] = params
+        m["params"] = effective_params
         m["score"] = _composite_score(m)
         return m
     except Exception as exc:
         logger.debug("market param eval failed: %s", exc)
         return {
             "score": -999,
-            "params": params,
+            "params": _effective_params(base_params, params),
             "trade_count": 0,
             "sampled_symbol_count": len(dfs),
             "traded_symbol_count": 0,
@@ -183,6 +218,8 @@ def walk_forward_optimise(
     df: pd.DataFrame,
     strategy: Strategy,
     initial_capital: float = 100_000,
+    param_space: dict | None = None,
+    base_params: dict | None = None,
     train_months: int = WALKFORWARD_TRAIN_MONTHS,
     test_months: int = WALKFORWARD_TEST_MONTHS,
     n_jobs: int = -1,
@@ -197,7 +234,7 @@ def walk_forward_optimise(
 
     random.seed(seed)
 
-    full_grid = list(ParameterGrid(strategy.param_space()))
+    full_grid = list(ParameterGrid(param_space or strategy.param_space()))
     # Random sampling when grid is large — avoids combinatorial explosion
     if n_iter and len(full_grid) > n_iter:
         param_grid = random.sample(full_grid, n_iter)
@@ -205,6 +242,8 @@ def walk_forward_optimise(
         param_grid = full_grid
 
     symbol = df.attrs.get("symbol", "?")
+    start_date = df.index[0].date()
+    end_date = df.index[-1].date()
 
     logger.info(
         "  [wf] %s/%s | bars=%d (%s→%s) | grid=%d/%d params",
@@ -220,7 +259,6 @@ def walk_forward_optimise(
         test_end = window["test_end"]
         train_df = window["train_df"]
         test_df = window["test_df"]
-        window_num += 1
 
         logger.info(
             "  [wf] window %d: train %s→%s (%d bars), test →%s (%d bars)",
@@ -229,7 +267,7 @@ def walk_forward_optimise(
 
         # Grid search on train window
         results = Parallel(n_jobs=n_jobs)(
-            delayed(_eval_params)(train_df, strategy, p, initial_capital)
+            delayed(_eval_params)(train_df, strategy, p, initial_capital, base_params)
             for p in param_grid
         )
         results = [r for r in results if r["trade_count"] > 0]
@@ -238,10 +276,12 @@ def walk_forward_optimise(
             logger.info("  [wf] window %d — no params produced trades, skipping", window_num)
             continue
 
-        best_train = max(results, key=lambda r: r["score"])
+        best_train = max(results, key=_objective_value)
         logger.info(
-            "  [wf] window %d best train: score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d",
+            "  [wf] window %d best train: objective=%s ret=%+.1f%% score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d",
             window_num,
+            _objective_name(),
+            best_train.get("annual_return", 0.0) * 100,
             best_train["score"], best_train["sharpe"], best_train["calmar"],
             best_train["profit_factor"], best_train["win_rate"] * 100, best_train["trade_count"],
         )
@@ -257,8 +297,9 @@ def walk_forward_optimise(
 
         gate_str = "PASS" if test_metrics["passes_gate"] else "FAIL"
         logger.info(
-            "  [wf] window %d OOS [%s]: score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d",
+            "  [wf] window %d OOS [%s]: ret=%+.1f%% score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d",
             window_num, gate_str,
+            test_metrics.get("annual_return", 0.0) * 100,
             test_metrics["score"], test_metrics["sharpe"], test_metrics["calmar"],
             test_metrics["profit_factor"], test_metrics["win_rate"] * 100, test_metrics["trade_count"],
         )
@@ -291,6 +332,8 @@ def walk_forward_optimise_market(
     dfs: list[pd.DataFrame],
     strategy: Strategy,
     initial_capital: float = 100_000,
+    param_space: dict | None = None,
+    base_params: dict | None = None,
     train_months: int = WALKFORWARD_TRAIN_MONTHS,
     test_months: int = WALKFORWARD_TEST_MONTHS,
     n_jobs: int = -1,
@@ -307,7 +350,7 @@ def walk_forward_optimise_market(
 
     random.seed(seed)
 
-    full_grid = list(ParameterGrid(strategy.param_space()))
+    full_grid = list(ParameterGrid(param_space or strategy.param_space()))
     if n_iter and len(full_grid) > n_iter:
         param_grid = random.sample(full_grid, n_iter)
     else:
@@ -327,8 +370,8 @@ def walk_forward_optimise_market(
 
     ordered_windows = sorted(window_groups.items(), key=lambda item: item[0][1])
     logger.info(
-        "  [wf] %s/%s | symbols=%d | grid=%d/%d params",
-        market, strategy.id, universe_size, len(param_grid), len(full_grid),
+        "  [wf] %s/%s | symbols=%d | objective=%s | grid=%d/%d params",
+        market, strategy.id, universe_size, _objective_name(), len(param_grid), len(full_grid),
     )
 
     window_results: list[dict] = []
@@ -343,7 +386,7 @@ def walk_forward_optimise_market(
         )
 
         results = Parallel(n_jobs=n_jobs)(
-            delayed(_eval_market_params)(train_dfs, strategy, p, initial_capital, universe_size)
+            delayed(_eval_market_params)(train_dfs, strategy, p, initial_capital, universe_size, base_params)
             for p in param_grid
         )
         results = [r for r in results if r["trade_count"] > 0]
@@ -352,10 +395,12 @@ def walk_forward_optimise_market(
             logger.info("  [wf] window %d — no params produced trades, skipping", window_num)
             continue
 
-        best_train = max(results, key=lambda r: r["score"])
+        best_train = max(results, key=_objective_value)
         logger.info(
-            "  [wf] window %d best train: score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d symbols=%d/%d profitable=%.0f%%",
+            "  [wf] window %d best train: objective=%s ret=%+.1f%% score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d symbols=%d/%d profitable=%.0f%%",
             window_num,
+            _objective_name(),
+            best_train.get("annual_return", 0.0) * 100,
             best_train["score"], best_train["sharpe"], best_train["calmar"],
             best_train["profit_factor"], best_train["win_rate"] * 100, best_train["trade_count"],
             best_train["traded_symbol_count"], best_train["sampled_symbol_count"],
@@ -372,8 +417,9 @@ def walk_forward_optimise_market(
 
         gate_str = "PASS" if test_metrics["passes_gate"] else "FAIL"
         logger.info(
-            "  [wf] window %d OOS [%s]: score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d symbols=%d/%d profitable=%.0f%%",
+            "  [wf] window %d OOS [%s]: ret=%+.1f%% score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d symbols=%d/%d profitable=%.0f%%",
             window_num, gate_str,
+            test_metrics.get("annual_return", 0.0) * 100,
             test_metrics["score"], test_metrics["sharpe"], test_metrics["calmar"],
             test_metrics["profit_factor"], test_metrics["win_rate"] * 100, test_metrics["trade_count"],
             test_metrics["traded_symbol_count"], test_metrics["sampled_symbol_count"],
