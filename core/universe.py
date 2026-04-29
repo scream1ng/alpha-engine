@@ -22,6 +22,11 @@ _TV_FETCH_CAP = {
     "us": 3000,
     "au": 2000,
 }
+_MIN_PRICE = {
+    "th": 1.0,
+    "us": 1.0,
+    "au": 0.20,
+}
 
 # In-process cache: {(market_id, top_n): (fetched_at, symbols)}
 _cache: dict[tuple[str, int | None], tuple[datetime, list[str]]] = {}
@@ -41,6 +46,7 @@ def _fetch_tradingview(market_id: str, top_n: int | None) -> list[str]:
     url, suffix, exchanges = _TV_MARKET_MAP[market_id]
     fetch_range_end = _fetch_range_end(market_id, top_n)
     min_turnover = _MIN_TURNOVER.get(market_id, 0)
+    min_price = _MIN_PRICE.get(market_id, 0.0)
     payload: dict[str, Any] = {
         "columns": ["name", "market_cap_basic", "close", "average_volume_10d_calc"],
         "sort": {"sortBy": "market_cap_basic", "sortOrder": "desc"},
@@ -62,7 +68,10 @@ def _fetch_tradingview(market_id: str, top_n: int | None) -> list[str]:
         # Exclude foreign-board duplicates, rights, and warrants that slip through.
         if any(token in name for token in (".F", ".R", "-W", "-R")):
             continue
-        turnover = float(close or 0) * float(avg_vol or 0)
+        price = float(close or 0)
+        if price <= min_price:
+            continue
+        turnover = price * float(avg_vol or 0)
         if turnover <= min_turnover:
             continue
         symbol = name + suffix
