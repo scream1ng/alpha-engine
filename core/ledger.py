@@ -41,6 +41,7 @@ class PortfolioLedger:
                 "size": size,
                 "pnl": pnl_per * size,
                 "bars_held": position.bars_held,
+                "position_id": position.position_id,
             }
         )
         if not exit_signal.partial:
@@ -75,12 +76,19 @@ class PortfolioLedger:
                 "trade_count": 0,
                 "avg_bars": 0.0,
             }
-        pnls = [t["pnl"] for t in self._closed]
+        from collections import defaultdict
+        pos_pnl: dict = defaultdict(float)
+        pos_bars: dict = defaultdict(int)
+        for t in self._closed:
+            pid = t.get("position_id", id(t))
+            pos_pnl[pid] += t["pnl"]
+            pos_bars[pid] = t["bars_held"]
+        pnls = list(pos_pnl.values())
         wins = [p for p in pnls if p > 0]
-        bars = [t["bars_held"] for t in self._closed]
+        avg_bars = sum(pos_bars.values()) / len(pos_bars) if pos_bars else 0.0
         return {
             "total_pnl": sum(pnls),
             "win_rate": len(wins) / len(pnls),
             "trade_count": len(pnls),
-            "avg_bars": sum(bars) / len(bars),
+            "avg_bars": avg_bars,
         }

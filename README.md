@@ -1,10 +1,10 @@
 # Alpha Engine
 
-Multi-market, multi-strategy algorithmic signal system. Runs isolated pipelines per market, validates strategies through walk-forward optimisation, then writes live signals to a shared database.
+Multi-market, multi-strategy algorithmic signal system. Runs isolated pipelines per market, validates strategies through grid-search optimisation, then writes live signals to a shared database.
 
 **Markets:** Thailand SET · US Equities · AU ASX · Crypto · Commodity
 
-**Strategies:** Pivot Breakout · Pullback Buy · Reversal · BB Squeeze · MA Cross · Narrow Range
+**Strategies:** Pivot Breakout · Trendline Breakout · Pullback Buy · Reversal · BB Squeeze · MA Cross · Narrow Range
 
 ---
 
@@ -14,9 +14,10 @@ Multi-market, multi-strategy algorithmic signal system. Runs isolated pipelines 
 pip install -r requirements.txt
 
 python run.py th diagnose                      # check strategies fire signals
-python run.py th quick-report                  # fixed params over last 1 year
-python run.py th optimise --capital 1000000    # walk-forward optimise
-python run.py th report                        # view results instantly
+python run.py th quick-report                  # progressive filter study over 3 years
+python run.py th optimise-filter               # grid-search best entry filters
+python run.py th optimise-risk                 # grid-search best risk params
+python run.py th report                        # view last optimise result from DB
 python run.py th scan                          # generate today's signals
 
 python run.py all scan                         # scan every market at once
@@ -29,14 +30,12 @@ python run.py all scan                         # scan every market at once
 ## How it works
 
 ```
-diagnose → optimise → scan (daily)
-              ↓
-         walk-forward (18m train / 6m test)
-        gate: Annual Return ≥3%, Sharpe ≥0.0, Calmar ≥0.0, PF ≥1.05, WR ≥30%, Trades ≥3
-         consistency: recent 1yr metrics must be ≥50% of 2yr
-              ↓
-         params saved to DB with is_live=True
-              ↓
+diagnose → optimise-filter → optimise-risk → scan (daily)
+                ↓
+         Y1 grid search (last 365 days)
+         ranked by annual_return
+         best params saved to DB with is_live=True
+                ↓
          scan reads only live-approved strategies
 ```
 
@@ -49,23 +48,21 @@ No strategy reaches live trading without passing all gates. Re-optimise monthly 
 ```
 alpha-engine/
 ├── config.py                   ← Market configs, gate thresholds, scoring weights
-├── main.py                     ← CLI entry point (delegates to scripts/)
+├── run.py                      ← CLI entry point (delegates to scripts/)
 ├── OPERATIONS.md               ← Runbook: what to run, in what order, how often
 │
 ├── scripts/
 │   └── pipeline.py             ← Shared pipeline logic (all markets use this)
 │
-├── charts/
-│   └── nr7.py                  ← NR7 candlestick chart visualiser
-│
 ├── core/
-│   ├── signal.py               ← Signal, Position, ExitSignal dataclasses
+│   ├── signal.py               ← Signal, Position, ExitSignal dataclasses (position_id for trade counting)
 │   ├── registry.py             ← StrategyRegistry — auto-discovery via decorator
-│   ├── exit_policy.py          ← HardExitPolicy: SL / TP1 partial / TP2 partial / trail / EMA exit
-│   ├── indicators.py           ← ATR, RSI, BB, KC, EMA, SMA, RVol, momentum
+│   ├── exit_policy.py          ← SL / TP1 partial / TP2 partial / trail / EMA exit
+│   ├── indicators.py           ← ATR, RSI, BB, KC, EMA, SMA, RVol, ADX, RSM, STR, momentum
 │   ├── universe.py             ← TradingView screener (TH/US/AU) + stub fallbacks
 │   ├── tx_cost.py              ← Transaction cost model per market
-│   ├── risk.py                 ← Correlation-aware heat cap
+│   ├── risk_policy.py          ← Portfolio heat cap + position sizing
+│   ├── ledger.py               ← Portfolio-level trade ledger (groups partials by position_id)
 │   ├── ranker.py               ← Signal composite scorer
 │   ├── guard.py                ← Look-ahead bias guard
 │   └── paper_trade.py          ← Paper trading simulator
@@ -79,22 +76,36 @@ alpha-engine/
 │   └── commodity.py            ← Commodity futures (yfinance)
 │
 ├── strategies/
-│   ├── base.py                 ← Strategy ABC + _build_signal, _in_uptrend helpers
+│   ├── base.py                 ← Strategy ABC: _build_signal, _in_uptrend, _rsm_ok, _stretch_ok
 │   ├── pivot_breakout.py       ← Break above recent high with volume
-│   ├── pullback_buy.py         ← Pullback to EMA in uptrend
+│   ├── trendline_breakout.py   ← Descending trendline fan breakout
+│   ├── pullback_buy.py         ← Pullback to breakpoint in uptrend
 │   ├── reversal.py             ← RSI oversold + engulfing/hammer + volume
 │   ├── bb_squeeze.py           ← Bollinger Band squeeze release
 │   ├── ma_cross.py             ← EMA fast/slow crossover with trend filter
 │   └── narrow_range.py         ← NR7 pending stop-buy on volatility contraction
 │
 ├── validation/
-│   ├── backtest.py             ← Bar-by-bar backtest engine
-│   ├── optimizer.py            ← Walk-forward grid search (18m train / 6m test)
+│   ├── backtest.py             ← Bar-by-bar backtest engine (partials grouped by position_id)
+│   ├── optimizer.py            ← Y1 grid search ranked by annual_return
 │   └── consistency.py          ← 2yr vs 1yr drift check (threshold: 50%)
 │
 └── db/
     └── models.py               ← SQLAlchemy models (SQLite dev / Postgres prod)
 ```
+
+---
+
+## Filter stack
+
+Every strategy applies filters in this order (each param defaults to 0 = disabled):
+
+| Filter | Param | Description |
+|--------|-------|-------------|
+| Trend | `trend_filter` / `trend_sma_period` | Close must be above SMA(N). Multi-SMA via `"50_100"` syntax. |
+| Volume | `rvol_min` | Relative volume must exceed threshold (e.g. 1.5× 20-day avg). |
+| Stretch | `str_max` | `STR = (close − SMA50) / ATR`. Blocks signals where price is overextended (e.g. STR > 4). |
+| RS Momentum | `rsm_min` | Rolling RS rating 1–99 vs benchmark. Not applied to crypto/commodity. |
 
 ---
 
@@ -108,16 +119,16 @@ Each signal has a layered exit:
 | 2 | Price hits TP1 | Sell `tp1_partial_pct`% (default 30%), move SL to breakeven |
 | 3 | Price hits TP2 | Sell `tp2_partial_pct`% of remainder |
 | 4 | Trailing stop | Trail remainder at `trail_atr_mult × ATR` |
-| 5 | EMA exit | Close < EMA5/10 after TP1 hit → exit remainder |
+| 5 | EMA exit | Close < EMA10 after TP1 hit → exit remainder |
 | 6 | Time stop | Exit if open > `max_bars` bars |
 
-All exit params are walk-forward optimised per strategy.
+TP1 + TP2 + final exit all count as **one trade** (grouped by `position_id`).
 
 ---
 
 ## Risk management
 
-Sizing is ATR-based. Walk-forward discovers optimal multipliers per strategy:
+Sizing is ATR-based. Grid search discovers optimal multipliers per strategy:
 
 | Param | Controls | Optimised range |
 |-------|----------|----------------|
@@ -140,7 +151,7 @@ Sizing is ATR-based. Walk-forward discovers optimal multipliers per strategy:
 
 ```bash
 # Production
-DATABASE_URL=postgresql://user:pass@host/dbname python scripts/run_th.py scan
+DATABASE_URL=postgresql://user:pass@host/dbname python run.py th scan
 ```
 
 ---
@@ -150,8 +161,10 @@ DATABASE_URL=postgresql://user:pass@host/dbname python scripts/run_th.py scan
 1. Create `strategies/my_strategy.py`
 2. Subclass `Strategy`, add `@StrategyRegistry.register`
 3. Implement `scan(df, params) -> list[Signal]` and `param_space() -> dict`
-4. Add strategy id to `enabled_strategies` in `config.py`
-5. Run `diagnose` → verify fires, then `optimise` → walk-forward picks it up
+4. Include `rsm_min`, `str_max` in `default_params` and `param_space()`
+5. Add `if not self._rsm_ok(df, p): return []` and `if not self._stretch_ok(df, p): return []` in `scan()`
+6. Add strategy id to `enabled_strategies` in `config.py`
+7. Run `diagnose` → verify fires, then `optimise-filter` → picks it up
 
 ```python
 from core.registry import StrategyRegistry
@@ -160,13 +173,26 @@ from strategies.base import Strategy
 @StrategyRegistry.register
 class MyStrategy(Strategy):
     id = "my_strategy"
-    default_params = {"sl_atr_mult": 1.5, "tp1_atr_mult": 2.0, ...}
+    default_params = {
+        "sl_atr_mult": 1.5, "tp1_atr_mult": 2.0,
+        "rsm_min": 0, "str_max": 0, ...
+    }
 
     def scan(self, df, params):
+        p = {**self.default_params, **params}
+        if not self._in_uptrend(df, p): return []
+        if not self._rsm_ok(df, p): return []
+        if not self._stretch_ok(df, p): return []
         ...
-        return [self._build_signal(df=df, params=params, entry=price,
+        return [self._build_signal(df=df, params=p, entry=price,
                                    entry_type="market_close", atr_val=atr)]
 
     def param_space(self):
-        return {"sl_atr_mult": [1.0, 1.5, 2.0], "tp1_atr_mult": [1.5, 2.0, 2.5], ...}
+        return {
+            "sl_atr_mult": [1.0, 1.5, 2.0],
+            "tp1_atr_mult": [1.5, 2.0, 2.5],
+            "rsm_min": [0, 75, 80],
+            "str_max": [0, 3, 4, 5],
+            ...
+        }
 ```

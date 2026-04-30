@@ -2,13 +2,13 @@ from __future__ import annotations
 import logging
 import random
 from statistics import median
-from datetime import date
+from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.model_selection import ParameterGrid
 from strategies.base import Strategy
-from validation.backtest import run_backtest
+from validation.backtest import run_backtest, run_portfolio_backtest
 from config import (
     WALKFORWARD_TRAIN_MONTHS,
     WALKFORWARD_TEST_MONTHS,
@@ -214,6 +214,93 @@ def _eval_market_params(
         }
 
 
+def _slice_by_date(dfs: list, start: date, end: date) -> list:
+    import pandas as pd
+    out = []
+    ts_start, ts_end = pd.Timestamp(start), pd.Timestamp(end)
+    for df in dfs:
+        sl = df[(df.index >= ts_start) & (df.index < ts_end)].copy()
+        sl.attrs = df.attrs
+        if len(sl) >= 60:
+            out.append(sl)
+    return out
+
+
+def optimise_market_grid(
+    dfs: list,
+    strategy: "Strategy",
+    param_space: dict,
+    base_params: dict,
+    capital: float,
+    as_of: date,
+    n_jobs: int = 1,
+    n_iter: int = 300,
+    seed: int = 42,
+) -> dict:
+    """
+    Grid search param_space against Y1 portfolio backtest.
+    Ranks candidates by Y1 annual_return (most recent year = "best return for now").
+    No rolling windows — direct 3yr evaluation.
+    """
+    if not dfs:
+        return {"status": "no_data", "best_params": dict(base_params), "best_score": 0.0, "best_metrics": {}}
+
+    random.seed(seed)
+
+    full_grid = list(ParameterGrid(param_space)) if param_space else [{}]
+    if n_iter and len(full_grid) > n_iter:
+        param_grid = random.sample(full_grid, n_iter)
+    else:
+        param_grid = full_grid
+
+    market = dfs[0].attrs.get("market", "?")
+    logger.info(
+        "  [grid] %s/%s | symbols=%d | grid=%d/%d | objective=Y1_annual_return",
+        market, strategy.id, len(dfs), len(param_grid), len(full_grid),
+    )
+
+    y1_dfs = _slice_by_date(dfs, as_of - timedelta(days=365), as_of)
+    if not y1_dfs:
+        logger.warning("  [grid] no Y1 data for %s/%s", market, strategy.id)
+        return {"status": "no_data", "best_params": dict(base_params), "best_score": 0.0, "best_metrics": {}}
+
+    def _eval(combo: dict) -> dict:
+        effective = {**base_params, **combo}
+        try:
+            m = run_portfolio_backtest(y1_dfs, strategy, effective, initial_capital=capital)
+            m["params"] = effective
+            m["score"] = _composite_score(m)
+        except Exception as exc:
+            logger.debug("grid eval failed: %s", exc)
+            m = {"score": -999.0, "params": effective, "trade_count": 0, "annual_return": 0.0,
+                 "sharpe": 0.0, "calmar": 0.0, "profit_factor": 0.0, "win_rate": 0.0, "max_drawdown": 0.0}
+        return m
+
+    results = Parallel(n_jobs=n_jobs)(delayed(_eval)(p) for p in param_grid)
+    results = [r for r in results if r.get("trade_count", 0) > 0]
+
+    if not results:
+        logger.warning("  [grid] no combos produced trades for %s/%s", market, strategy.id)
+        return {"status": "no_data", "best_params": dict(base_params), "best_score": 0.0, "best_metrics": {}}
+
+    best = max(results, key=lambda r: float(r.get("annual_return", 0.0) or 0.0))
+
+    logger.info(
+        "  [grid] best: ret=%+.1f%% score=%.3f sharpe=%.2f trades=%d | params=%s",
+        best.get("annual_return", 0.0) * 100, best.get("score", 0.0),
+        best.get("sharpe", 0.0), best.get("trade_count", 0),
+        {k: v for k, v in best["params"].items() if k in param_space},
+    )
+
+    passes = _passes_gate(best)
+    return {
+        "status": "ok" if passes else "below_gate",
+        "best_params": best["params"],
+        "best_score": best.get("score", 0.0),
+        "best_metrics": {k: v for k, v in best.items() if k not in ("params", "trades")},
+    }
+
+
 def walk_forward_optimise(
     df: pd.DataFrame,
     strategy: Strategy,
@@ -325,6 +412,92 @@ def walk_forward_optimise(
         "window_results": [
             {k: v for k, v in w.items() if k != "trades"} for w in window_results
         ],
+    }
+
+
+def optimise_single_period(
+    df: pd.DataFrame,
+    strategy: Strategy,
+    initial_capital: float = 100_000,
+    param_space: dict | None = None,
+    base_params: dict | None = None,
+    n_jobs: int = -1,
+    n_iter: int = 150,
+    seed: int = 42,
+) -> dict:
+    """
+    Single-period optimisation: evaluate each param set on the full history
+    and return the best set by the configured objective. Also return per-year
+    metrics (calendar years) so the caller can inspect Y1/Y2/Y3 breakdowns.
+    """
+    df = _normalise_df(df)
+
+    random.seed(seed)
+
+    full_grid = list(ParameterGrid(param_space or strategy.param_space()))
+    if n_iter and len(full_grid) > n_iter:
+        param_grid = random.sample(full_grid, n_iter)
+    else:
+        param_grid = full_grid
+
+    symbol = df.attrs.get("symbol", "?")
+    start_date = df.index[0].date()
+    end_date = df.index[-1].date()
+
+    logger.info(
+        "  [single] %s/%s | bars=%d (%s→%s) | grid=%d/%d params",
+        symbol, strategy.id, len(df), start_date, end_date, len(param_grid), len(full_grid),
+    )
+
+
+    def _yearly_summary_for_params(params: dict) -> dict:
+        years = sorted({int(ts.year) for ts in df.index})
+        summary: dict = {}
+        for y in years:
+            year_df = df[df.index.year == y]
+            if len(year_df) < 10:
+                # skip very small years
+                continue
+            try:
+                m = run_backtest(year_df, strategy, params, initial_capital=initial_capital)
+                summary[str(y)] = {
+                    "annual_return": float(m.get("annual_return", 0.0) or 0.0),
+                    "total_pnl": float(m.get("total_pnl", 0.0) or 0.0),
+                    "trade_count": int(m.get("trade_count", 0) or 0),
+                }
+            except Exception:
+                summary[str(y)] = {"annual_return": 0.0, "total_pnl": 0.0, "trade_count": 0}
+        return summary
+
+
+    def _eval_with_years(p: dict) -> dict:
+        effective = _effective_params(base_params, p)
+        m = _eval_params(df, strategy, p, initial_capital, base_params)
+        m["yearly_summary"] = _yearly_summary_for_params(m.get("params", effective))
+        return m
+
+
+    results = Parallel(n_jobs=n_jobs)(delayed(_eval_with_years)(p) for p in param_grid)
+    results = [r for r in results if r.get("trade_count", 0) > 0]
+
+    if not results:
+        logger.warning("  [single] no params produced trades for %s/%s", symbol, strategy.id)
+        return {"status": "no_params", "best_params": strategy.default_params}
+
+    best = max(results, key=_objective_value)
+
+    logger.info(
+        "  [single] best: objective=%s ret=%+.1f%% score=%.3f sharpe=%.2f calmar=%.2f pf=%.2f wr=%.0f%% trades=%d",
+        _objective_name(), best.get("annual_return", 0.0) * 100, best.get("score", 0.0), best.get("sharpe", 0.0),
+        best.get("calmar", 0.0), best.get("profit_factor", 0.0), best.get("win_rate", 0.0) * 100, best.get("trade_count", 0),
+    )
+
+    return {
+        "status": "ok",
+        "best_params": best["params"],
+        "best_score": best.get("score", 0.0),
+        "best_metrics": {k: v for k, v in best.items() if k not in ("params", "trades")},
+        "results": [{k: v for k, v in r.items() if k != "trades"} for r in results],
     }
 
 

@@ -9,8 +9,8 @@ Step-by-step runbook — what to run, in what order, and how often.
 ```bash
 pip install -r requirements.txt
 
-# Creates SQLite DB + tables (including any column migrations)
-python run.py th optimise --symbols 5   # quick smoke test, 5 symbols only
+# Quick smoke test — 5 symbols only
+python run.py th optimise-filter --symbols 5
 ```
 
 ---
@@ -18,9 +18,11 @@ python run.py th optimise --symbols 5   # quick smoke test, 5 symbols only
 ## Workflow overview
 
 ```
-1. diagnose   ← verify strategies fire (run before every optimise)
-2. optimise   ← find best params per strategy, write to DB
-3. scan       ← daily: generate live signals using approved params
+1. diagnose         ← verify strategies fire signals
+2. quick-report     ← review filter impact across 3 years (6 progressive phases)
+3. optimise-filter  ← grid-search best entry filters (SMA, RVol, STR, RSM)
+4. optimise-risk    ← grid-search best risk params (SL/TP multipliers)
+5. scan             ← daily: generate live signals using approved params
 ```
 
 Paper trading (`paper`) is optional validation before trusting live signals.
@@ -29,22 +31,20 @@ Paper trading (`paper`) is optional validation before trusting live signals.
 
 ## Commands
 
-All commands work for every market runner (`run_th.py`, `run_us.py`, `run_au.py`, `run_crypto.py`, `run_commodity.py`).
-
 ```bash
 python run.py [market] [command] [--capital N] [--symbols N]
 ```
 
 | Command | What it does |
 |---------|-------------|
-| `diagnose` | Bar-by-bar scan over 12 months. Shows how many signals each strategy fires. Run before optimise. |
-| `quick-report` | Runs one fixed parameter set over the last 12 months and prints simple per-strategy results. No gate, no DB write. |
-| `optimise` | Walk-forward optimisation (18m train / 6m test). Saves best params + live status to DB. |
+| `diagnose` | Bar-by-bar scan over 12 months. Shows how many signals each strategy fires per day. Run before optimise. |
+| `quick-report` | 6-phase progressive filter study × 3 years. Shows what each filter layer adds. No DB write. |
+| `optimise-filter` | Y1 grid search over SMA / RVol / STR / RSM params. Ranked by annual_return. Saves best to DB. |
+| `optimise-risk` | Y1 grid search over SL / TP / trail / partial params. Ranked by annual_return. Saves best to DB. |
 | `report` | Print last optimise result from DB instantly — no recomputation. |
 | `scan` | Generates today's signals using live-approved params from DB. |
 | `paper` | Simulates paper trading over last 90 days using live params. |
-| `validate` | Runs optimise then paper in sequence. |
-| `live` | Same as scan (wire to broker execution when ready). |
+| `validate` | Runs optimise-filter + optimise-risk then paper in sequence. |
 
 ---
 
@@ -57,7 +57,7 @@ python run.py [market] [command] [--capital N] [--symbols N]
 | Signal scan | AU | Daily, 17:30 AEST (Mon–Fri) | `python run.py au scan` |
 | Signal scan | Crypto | Daily, 00:05 UTC | `python run.py crypto scan` |
 | Signal scan | Commodity | Daily, 22:00 ET (Mon–Fri) | `python run.py commodity scan` |
-| Re-optimise | All | Monthly (1st of month) | `python run.py all optimise` |
+| Re-optimise | All | Monthly (1st of month) | `python run.py all optimise-filter && python run.py all optimise-risk` |
 | Diagnose | All | Before each optimise | `python run.py all diagnose` |
 
 ---
@@ -70,18 +70,24 @@ Run on the 1st of each month (or weekend closest to it):
 # 1. Check signals still firing
 python run.py th diagnose --symbols 50
 
-# 2. Re-optimise (uses latest 5yr rolling history)
-python run.py th optimise --symbols 50 --capital 1000000
+# 2. Review filter behavior across 3 years
+python run.py th quick-report --symbols 50
 
-# 3. View the result
+# 3. Optimise filters (SMA, RVol, STR, RSM)
+python run.py th optimise-filter --symbols 50 --capital 1000000
+
+# 4. Optimise risk params (SL/TP/trail)
+python run.py th optimise-risk --symbols 50 --capital 1000000
+
+# 5. View the result
 python run.py th report
 ```
 
 Repeat for each market.
 
-## Quick fixed-setting check
+---
 
-Use this when you want a fast read on strategy behavior before running full optimisation:
+## Quick-report explained
 
 ```bash
 python run.py th quick-report
@@ -89,58 +95,64 @@ python run.py all quick-report
 python run.py th quick-report --symbols 20
 ```
 
-`quick-report` uses one shared setting across all strategies over the last 12 months:
+Shows 6 progressive filter phases across 3 years (Y1 = most recent, Y3 = oldest):
 
-- `rvol_min = 2.0`
-- `trend_sma_period = 50`
-- `sl_atr_mult = 1.0`
-- `tp1_atr_mult = 2.0`, `tp1_partial_pct = 0.3`
-- `tp2_atr_mult = 2.0`, `tp2_partial_pct = 0.3`
-- `ema_exit_period = 10` with hard EMA exit enabled
-- move SL to breakeven after 3 bars
-- `risk_pct = 0.005`
+| Phase | Filters active |
+|-------|---------------|
+| EMA10 exit only | Bare strategy — no entry filters, EMA10 hard exit |
+| + SMA50 trend filter | Close must be above SMA50 |
+| + RVol ≥1.5× filter | Relative volume ≥ 1.5× 20-day average |
+| + STR ≤4.0 filter | Stretch ratio ≤ 4.0 (not overextended above SMA50) |
+| + RSM ≥75 filter | RS Momentum rating ≥ 75 vs benchmark |
+| + TP/BE risk mgmt | TP1=2×ATR (30% sell), TP2=4×ATR (30% sell), bars-based breakeven |
 
----
+Each phase stacks on the previous. Compare Y1/Y2/Y3 columns to see if filters hold across regimes.
 
-## Reading the optimise report
-
-```
-┌─ PIVOT_BREAKOUT  [LIVE ✓]
-│  OOS Return:     +12.8%✓(≥15%)  (annualised, latest OOS window, median across sampled symbols)
-│  Risk metrics :  Sharpe=1.45✓  Calmar=1.2✓  PF=2.10✓  WR=58%✓
-│  Signal filter:  rvol_min=1.2  psth=0.005
-│  Entry → Exit :
-│    SL     = 1.5×ATR
-│    Trend  = SMA100 uptrend filter
-│    TP1    = 3.0×ATR  → sell 30%,  70% remains,  SL→breakeven
-│    TP2    = 4.5×ATR  → sell 30% of remaining,  49% trails to stop
-│    Trail  = 2.0×ATR
-│    EMA    = EMA10  (hard exit if close < EMA after TP1)
-│    Time   = exit after 20 bars
-│  Risk     :  0.50% capital per trade  |  Raw RR = 2.0:1
-└────────────────────────────────────────────────────────────
-```
-
-Status meanings:
-- `LIVE ✓` — strategy approved, params active, scan will use it
-- `not live — gate fail` — metrics below threshold (Annual Return, Sharpe, Calmar, PF, or WR)
-- `not live — consistency fail` — metrics degraded >50% in recent 1yr vs 2yr (regime change)
-
-`optimise` now selects one shared parameter set per strategy for the sampled market universe. Reported metrics are from the latest valid walk-forward OOS window and aggregated across the sampled symbols, not a single best stock.
+**Metrics per cell:** `Ret` (annual return %), `DD` (max drawdown %), `Tr` (trade count), `WR` (win rate %)
 
 ---
 
-## Gate thresholds
+## STR (Stretch) indicator
+
+`STR = (close − SMA50) / ATR`
+
+Measures how many ATRs price has extended above its 50-day SMA.
+
+| STR value | Interpretation |
+|-----------|---------------|
+| ≤ 4.0 | Acceptable stretch — eligible for entry |
+| > 4.0 | Overextended — signal blocked |
+
+Controlled by `str_max` param (0 = disabled). Default in all strategies: `str_max = 0`.
+
+---
+
+## RSM (RS Momentum) filter
+
+Rolling relative strength rating (1–99) vs market benchmark. Computed over a 21-bar window.
+
+- `rsm_min = 0` → disabled
+- `rsm_min = 75` → only stocks outperforming 75% of the market
+- Not applied to crypto or commodity markets (no benchmark)
+
+---
+
+## Gate thresholds (optimise)
 
 | Metric | Minimum | Why |
 |--------|---------|-----|
-| Annual Return | 3% | Bootstrap gate for small 6m OOS samples |
-| Sharpe | 0.0 | Do not block early approval on unstable low-trade Sharpe |
-| Calmar | 0.0 | Do not block early approval on tiny or zero drawdown windows |
-| Profit Factor | 1.05 | Require gross wins to exceed gross losses |
-| Win Rate | 30% | Allow lower-WR, higher-RR strategies |
-| Trades | 3 | Enough to avoid pure zero-trade approvals |
-| Consistency | 50% | Recent 1yr metrics ≥ 50% of 2yr metrics |
+| Annual Return | 3% | Bootstrap gate for Y1 sample |
+| Sharpe | 0.0 | Not blocked on low-trade windows |
+| Calmar | 0.0 | Not blocked on tiny/zero drawdown |
+| Profit Factor | 1.05 | Gross wins must exceed gross losses |
+| Win Rate | 30% | Allows low-WR / high-RR strategies |
+| Trades | 3 | Avoid zero-trade approvals |
+
+---
+
+## Trade counting
+
+Partial exits (TP1 sell + TP2 sell + final exit) count as **one trade**, grouped by `position_id`. Metrics (win rate, profit factor, avg win/loss) are all per-entry, not per-exit-event.
 
 ---
 
@@ -179,7 +191,7 @@ for r in db.query(StrategyParamsModel).filter_by(is_live=True).all():
 
 ```bash
 # Production
-DATABASE_URL=postgresql://user:pass@host/dbname python scripts/run_th.py scan
+DATABASE_URL=postgresql://user:pass@host/dbname python run.py th scan
 ```
 
 ---
@@ -188,6 +200,9 @@ DATABASE_URL=postgresql://user:pass@host/dbname python scripts/run_th.py scan
 
 1. Create `strategies/my_strategy.py`, subclass `Strategy`, add `@StrategyRegistry.register`
 2. Implement `scan(df, params)` and `param_space()`
-3. Add strategy id to `enabled_strategies` in `config.py` for target markets
-4. Run `diagnose` — verify it fires signals
-5. Run `optimise` — walk-forward finds best params automatically
+3. Include `rsm_min: 0` and `str_max: 0` in `default_params`
+4. Add `_rsm_ok` and `_stretch_ok` checks in `scan()` after trend/volume checks
+5. Add `rsm_min` and `str_max` to `param_space()`
+6. Add strategy id to `enabled_strategies` in `config.py` for target markets
+7. Run `diagnose` — verify it fires signals
+8. Run `optimise-filter` — grid search finds best params automatically

@@ -3,7 +3,7 @@ import pandas as pd
 from strategies.base import Strategy
 from core.registry import StrategyRegistry
 from core.signal import Signal
-from core.indicators import atr, bollinger_bands, keltner_channel, momentum_histogram
+from core.indicators import atr, rvol, bollinger_bands, keltner_channel, momentum_histogram
 
 
 @StrategyRegistry.register
@@ -21,7 +21,9 @@ class BBSqueeze(Strategy):
         "max_bars": 0,
         "trail_atr_mult": 2.0,
         "be_trigger_atr_mult": 1.0,
+        "rvol_min": 0,
         "rsm_min": 0,
+        "str_max": 0,
     }
 
     def scan(self, df: pd.DataFrame, params: dict) -> list[Signal]:
@@ -30,6 +32,8 @@ class BBSqueeze(Strategy):
         if len(df) < period + 5:
             return []
         if not self._rsm_ok(df, p):
+            return []
+        if not self._stretch_ok(df, p):
             return []
 
         _atr = df["_atr"] if "_atr" in df.columns else atr(df)
@@ -55,6 +59,12 @@ class BBSqueeze(Strategy):
             return []
         if not self._in_uptrend(df, p):
             return []
+
+        rvol_min = float(p.get("rvol_min", 0))
+        if rvol_min > 0:
+            _rvol = df["_rvol"] if "_rvol" in df.columns else rvol(df)
+            if float(_rvol.iloc[-1]) < rvol_min:
+                return []
 
         # Momentum turning up on release bar (increasing, even if still negative)
         if float(momentum.iloc[-1]) <= float(momentum.iloc[-2]):
@@ -91,7 +101,9 @@ class BBSqueeze(Strategy):
             "be_trigger_atr_mult": [0.5, 1.0],
             "ema_exit_period":     [0, 5, 10],
             "trend_filter":        [0, 50, 100, 200, "50_100", "50_200", "100_200"],
+            "rvol_min":            [0, 1.5, 2.0],
             "tp1_partial_pct":     [0.2, 0.3, 0.4, 0.5],
             "tp2_partial_pct":     [0.2, 0.3, 0.4, 0.5],
             "rsm_min":             [0, 75, 80],
+            "str_max":             [0, 3, 4, 5],
         }

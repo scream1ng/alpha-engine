@@ -54,7 +54,10 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         max_heat_pct=0.06,
         min_position_value=2_000,
         timezone="Australia/Sydney",
-        enabled_strategies=["pivot_breakout", "trendline_breakout", "pullback_buy", "ma_cross"],
+        enabled_strategies=[
+            "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
+            "bb_squeeze", "ma_cross", "narrow_range",
+        ],
     ),
     "crypto": MarketConfig(
         market_id="crypto",
@@ -66,7 +69,10 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         max_heat_pct=0.04,
         min_position_value=500,
         timezone="UTC",
-        enabled_strategies=["pivot_breakout", "bb_squeeze", "ma_cross"],
+        enabled_strategies=[
+            "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
+            "bb_squeeze", "ma_cross", "narrow_range",
+        ],
     ),
     "commodity": MarketConfig(
         market_id="commodity",
@@ -78,7 +84,10 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         max_heat_pct=0.04,
         min_position_value=0,
         timezone="America/New_York",
-        enabled_strategies=["pivot_breakout", "ma_cross", "narrow_range"],
+        enabled_strategies=[
+            "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
+            "bb_squeeze", "ma_cross", "narrow_range",
+        ],
     ),
 }
 
@@ -93,6 +102,8 @@ SCORING_WEIGHTS = {
     "win_rate": 0.10,
 }
 
+OPTIMIZER_OBJECTIVE = "annual_return"
+
 WALKFORWARD_TRAIN_MONTHS = 18
 WALKFORWARD_TEST_MONTHS = 6
 CONSISTENCY_THRESHOLD = 0.50
@@ -102,8 +113,6 @@ PAPER_MIN_MONTHS = 3
 
 SELECTION_GATE = {
     "min_annual_return": 0.03,   # bootstrap gate for 6m OOS samples
-OPTIMIZER_OBJECTIVE = "annual_return"
-
     "min_sharpe": 0.0,
     "min_calmar": 0.0,
     "min_profit_factor": 1.05,

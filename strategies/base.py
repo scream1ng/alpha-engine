@@ -15,6 +15,7 @@ class Strategy(ABC):
         "rvol_min",
         "rvol_max_on_pullback",
         "rsm_min",
+        "str_max",
     )
     RISK_PARAM_KEYS = (
         "sl_atr_mult",
@@ -99,6 +100,22 @@ class Strategy(ABC):
         if math.isnan(rsm_val):
             return True  # no benchmark data — pass through
         return rsm_val >= rsm_min
+
+    def _stretch_ok(self, df: pd.DataFrame, params: dict) -> bool:
+        """Return False if STR filter active and price is overextended above SMA50.
+        STR = (close - SMA50) / ATR. str_max=0 disables the filter."""
+        import math
+        str_max = float(params.get("str_max", 0))
+        if str_max <= 0:
+            return True
+        if "_stretch" in df.columns:
+            val = float(df["_stretch"].iloc[-1])
+        else:
+            from core.indicators import stretch as _stretch_fn
+            val = float(_stretch_fn(df).iloc[-1])
+        if math.isnan(val):
+            return True
+        return val <= str_max
 
     @abstractmethod
     def scan(self, df: pd.DataFrame, params: dict) -> list[Signal]:

@@ -15,7 +15,7 @@ def _precompute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Add param-independent indicator columns once — slices inherit them."""
     from core.indicators import (
         atr, rvol, rsi, ema, candle_body_pct, close_position_in_range,
-        momentum_histogram, rsm,
+        momentum_histogram, rsm, stretch,
     )
     df = df.copy()
     df["_atr"] = atr(df)
@@ -27,6 +27,7 @@ def _precompute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["_ema5"] = ema(df, 5)
     df["_ema10"] = ema(df, 10)
     df["_rsm"] = rsm(df)  # needs _bm_close col; NaN if benchmark not attached
+    df["_stretch"] = stretch(df)  # (close - SMA50) / ATR
     return df
 
 
@@ -103,6 +104,7 @@ def run_backtest(
                             "size": size,
                             "pnl": pnl,
                             "bars_held": pos.bars_held,
+                            "position_id": pos.position_id,
                         }
                     )
                     if exit_sig.partial:
@@ -332,7 +334,16 @@ def compute_metrics(trades: list[dict], initial_capital: float, n_bars: int = 25
             "trades": [],
         }
 
-    pnls = [t["pnl"] for t in trades]
+    # Group partial exits by position_id so trade_count/win_rate/PF are per-entry, not per-exit-event
+    from collections import defaultdict
+    pos_groups: dict = defaultdict(lambda: {"pnl": 0.0, "pos_val": 0.0})
+    for t in trades:
+        pid = t.get("position_id", id(t))
+        pos_groups[pid]["pnl"] += t["pnl"]
+        pos_groups[pid]["pos_val"] += t.get("entry_price", 0) * t.get("size", 0)
+    position_records = list(pos_groups.values())
+
+    pnls = [r["pnl"] for r in position_records]
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p < 0]
     win_rate = len(wins) / len(pnls)
@@ -377,12 +388,11 @@ def compute_metrics(trades: list[dict], initial_capital: float, n_bars: int = 25
     annual_return = (sum(pnls) / initial_capital) * annualization
     calmar = annual_return / max_dd if max_dd > 0 else annual_return
 
-    # avg win/loss as % of position value (entry_price × size)
-    def _pct(t: dict) -> float:
-        pos_val = t.get("entry_price", 0) * t.get("size", 0)
-        return t["pnl"] / pos_val if pos_val > 0 else 0.0
+    # avg win/loss as % of position value (entry_price × size), grouped per position
+    def _pos_pct(r: dict) -> float:
+        return r["pnl"] / r["pos_val"] if r["pos_val"] > 0 else 0.0
 
-    pct_pnls = [_pct(t) for t in trades]
+    pct_pnls   = [_pos_pct(r) for r in position_records]
     wins_pct   = [p for p in pct_pnls if p > 0]
     losses_pct = [p for p in pct_pnls if p < 0]
     avg_win  = float(sum(wins_pct)   / len(wins_pct))   if wins_pct   else 0.0
@@ -394,7 +404,7 @@ def compute_metrics(trades: list[dict], initial_capital: float, n_bars: int = 25
         "annual_return": float(annual_return),
         "profit_factor": float(profit_factor),
         "win_rate": float(win_rate),
-        "trade_count": len(trades),
+        "trade_count": len(position_records),
         "avg_win": avg_win,
         "avg_loss": avg_loss,
         "max_drawdown": float(max_dd),

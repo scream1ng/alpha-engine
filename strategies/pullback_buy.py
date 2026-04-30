@@ -23,6 +23,7 @@ class PullbackBuy(Strategy):
         "trail_atr_mult": 1.5,
         "be_trigger_atr_mult": 1.0,
         "rsm_min": 0,
+        "str_max": 0,
     }
 
     def scan(self, df: pd.DataFrame, params: dict) -> list[Signal]:
@@ -47,6 +48,8 @@ class PullbackBuy(Strategy):
         if not self._in_uptrend(df, p):
             return []
         if not self._rsm_ok(df, p):
+            return []
+        if not self._stretch_ok(df, p):
             return []
         pivot_high = window["high"].max()
         pivot_date_idx = window["high"].idxmax()
@@ -101,4 +104,5 @@ class PullbackBuy(Strategy):
             "tp1_partial_pct":       [0.2, 0.3, 0.4, 0.5],
             "tp2_partial_pct":       [0.2, 0.3, 0.4, 0.5],
             "rsm_min":               [0, 75, 80],
+            "str_max":               [0, 3, 4, 5],
         }

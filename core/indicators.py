@@ -80,6 +80,14 @@ def close_position_in_range(df: pd.DataFrame) -> pd.Series:
     return (df["close"] - df["low"]) / rng
 
 
+def stretch(df: pd.DataFrame, sma_period: int = 50) -> pd.Series:
+    """Stretch ratio: ATRs price has extended above SMA. STR > 4 = overextended."""
+    _sma = sma(df, sma_period)
+    _atr = atr(df)
+    result = (df["close"] - _sma) / _atr.replace(0, np.nan)
+    return result.replace([float("inf"), float("-inf")], float("nan"))
+
+
 def _rsm_final_rating(score: float) -> float:
     score = float(score)
     if score >= 195.93: return 99.0

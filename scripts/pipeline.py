@@ -36,10 +36,12 @@ _LEARN_PHASES = [
     ("EMA10 exit only",      {}),
     ("+ SMA50 trend filter", {"trend_sma_period": 50}),
     ("+ RVol >=1.5x filter", {"trend_sma_period": 50, "rvol_min": 1.5}),
-    ("+ RSM >=75 filter",   {"trend_sma_period": 50, "rvol_min": 1.5, "rsm_min": 75}),
+    ("+ STR <=4.0 filter",   {"trend_sma_period": 50, "rvol_min": 1.5, "str_max": 4.0}),
+    ("+ RSM >=75 filter",   {"trend_sma_period": 50, "rvol_min": 1.5, "str_max": 4.0, "rsm_min": 75}),
     ("+ TP/BE risk mgmt",    {
         "trend_sma_period":    50,
         "rvol_min":            1.5,
+        "str_max":             4.0,
         "rsm_min":             75,
         "sl_atr_mult":         1.0,
         "tp1_atr_mult":        2.0,
@@ -127,25 +129,33 @@ def _optimise_strategy_task(
     command: str,
     saved_params: dict | None = None,
 ) -> dict:
-    from validation.optimizer import walk_forward_optimise_market
+    from validation.optimizer import walk_forward_optimise_market, optimise_market_grid
     from validation.consistency import check_consistency_market
 
     strategy = strategy_cls()
     base_params, param_space, mode_label = _optimise_mode_config(strategy, command, saved_params)
-    opt = walk_forward_optimise_market(
-        market_dfs,
-        strategy,
-        initial_capital=capital,
-        param_space=param_space,
-        base_params=base_params,
-        n_jobs=1,
-    )
 
-    if opt["status"] == "no_windows":
+    if command in ("optimise-filter", "optimise-risk"):
+        opt = optimise_market_grid(
+            market_dfs,
+            strategy,
+            param_space or {},
+            base_params or {},
+            capital,
+            date.today(),
+            n_jobs=1,
+        )
+    else:
+        opt = walk_forward_optimise_market(
+            market_dfs, strategy, initial_capital=capital,
+            param_space=param_space, base_params=base_params, n_jobs=1,
+        )
+
+    if opt["status"] in ("no_windows", "no_data"):
         return {
             "strategy_id": strategy_id,
             "mode": mode_label,
-            "status": "no_windows",
+            "status": opt["status"],
             "opt": opt,
             "consistency": None,
             "is_live": False,
@@ -478,7 +488,7 @@ def _cmd_optimise_mode(adapter: MarketAdapter, args: argparse.Namespace, command
 
     market = adapter.market_id
     today = date.today()
-    history_start = today - timedelta(days=365 * 5)
+    history_start = today - timedelta(days=365 * 3)
 
     universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
     strategies_map = StrategyRegistry.for_market(market)
@@ -500,8 +510,8 @@ def _cmd_optimise_mode(adapter: MarketAdapter, args: argparse.Namespace, command
         if df.empty:
             logger.warning("  %s — no data returned, skipping", symbol)
             continue
-        if len(df) < 300:
-            logger.warning("  %s — only %d bars (need 300+), skipping", symbol, len(df))
+        if len(df) < 60:
+            logger.warning("  %s — only %d bars (need 60+), skipping", symbol, len(df))
             continue
 
         logger.info("  %s — %d bars (%s → %s)", symbol, len(df),
