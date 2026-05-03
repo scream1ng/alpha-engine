@@ -16,21 +16,27 @@ MARKETS = [
 ]
 
 INTERACTIVE_COMMANDS = [
-    ("optimise", "5-phase IS/OOS optimise — triage → grid → gate → OOS exam"),
-    ("report",         "View last optimise result from DB (instant)"),
-    ("chart",          "Interactive trade chart for best candidate (opens browser)"),
-    ("scan",           "Generate today's signals (live strategies only)"),
-    ("paper",          "Paper trading simulation (last 90 days)"),
-    ("diagnose",       "Check how many signals each strategy fires"),
+    ("optimise",        "5-phase IS/OOS optimise — triage → grid → gate → OOS exam"),
+    ("report",          "View last optimise result from DB (instant)"),
+    ("chart",           "Interactive trade chart for best candidate (opens browser)"),
+    ("regime",          "5yr regime discovery — which strategies suit uptrend/choppy/downtrend"),
+    ("regime-report",   "View last regime discovery result from DB (instant)"),
+    ("regime-optimise", "Phase 3 regime-aware grid search (coming soon)"),
+    ("scan",            "Generate today's signals (live strategies only)"),
+    ("paper",           "Paper trading simulation (last 90 days)"),
+    ("diagnose",        "Check how many signals each strategy fires"),
 ]
 
 CLI_COMMANDS = [
-    ("optimise", "5-phase IS/OOS optimise — triage → grid → gate → OOS exam"),
-    ("report",         "View last optimise result from DB (instant)"),
-    ("chart",          "Interactive trade chart for best candidate (opens browser)"),
-    ("scan",           "Generate today's signals (live strategies only)"),
-    ("paper",          "Paper trading simulation (last 90 days)"),
-    ("diagnose",       "Check how many signals each strategy fires"),
+    ("optimise",        "5-phase IS/OOS optimise — triage → grid → gate → OOS exam"),
+    ("report",          "View last optimise result from DB (instant)"),
+    ("chart",           "Interactive trade chart for best candidate (opens browser)"),
+    ("regime",          "5yr regime discovery — which strategies suit uptrend/choppy/downtrend"),
+    ("regime-report",   "View last regime discovery result from DB (instant)"),
+    ("regime-optimise", "Phase 3 regime-aware grid search (coming soon)"),
+    ("scan",            "Generate today's signals (live strategies only)"),
+    ("paper",           "Paper trading simulation (last 90 days)"),
+    ("diagnose",        "Check how many signals each strategy fires"),
 ]
 
 _ADAPTERS = {
@@ -107,7 +113,7 @@ def interactive() -> None:
     symbols = None
     candidate = 1
     chart_strategy = None
-    if command in ("optimise", "chart", "diagnose", "paper"):
+    if command in ("optimise", "chart", "diagnose", "paper", "regime"):
         symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
     if command == "chart":
         chart_strategy = _ask("Strategy name (blank = all strategies)", "").strip() or None

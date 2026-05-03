@@ -14,7 +14,7 @@ MIN_BARS_WARMUP = 50
 def _precompute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Add param-independent indicator columns once — slices inherit them."""
     from core.indicators import (
-        atr, rvol, rsi, ema, candle_body_pct, close_position_in_range,
+        atr, rvol, rsi, ema, sma, candle_body_pct, close_position_in_range,
         momentum_histogram, rsm, stretch,
     )
     df = df.copy()
@@ -26,6 +26,9 @@ def _precompute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["_momentum"] = momentum_histogram(df)
     df["_ema5"] = ema(df, 5)
     df["_ema10"] = ema(df, 10)
+    df["_sma50"] = sma(df, 50)
+    df["_sma100"] = sma(df, 100)
+    df["_sma200"] = sma(df, 200)
     df["_rsm"] = rsm(df)  # needs _bm_close col; NaN if benchmark not attached
     df["_stretch"] = stretch(df)  # (close - SMA50) / ATR
     return df
@@ -154,7 +157,7 @@ def run_portfolio_backtest(
 
     for raw_df in dfs:
         saved_attrs = raw_df.attrs
-        df = _precompute_indicators(raw_df)
+        df = raw_df if "_atr" in raw_df.columns else _precompute_indicators(raw_df)
         df.attrs = saved_attrs
         if len(df) <= MIN_BARS_WARMUP:
             continue
@@ -191,7 +194,7 @@ def run_portfolio_backtest(
 
             df = item["df"]
             symbol = item["symbol"]
-            bar_df = df.iloc[: idx + 1].copy()
+            bar_df = df.iloc[: idx + 1]
             bar_df.attrs = df.attrs
             bar = df.iloc[idx]
             bar_dict = _bar_to_dict(bar, df)

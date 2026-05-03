@@ -15,6 +15,21 @@ from markets.base import MarketAdapter
 
 logger = logging.getLogger(__name__)
 
+_REGIME_DISCOVERY_PARAMS = {
+    "sl_atr_mult": 1.5,
+    "tp1_atr_mult": 3.0,
+    "tp1_partial_pct": 1.0,   # full exit at TP1 — single TP, pure 2:1 RR test
+    "tp2_atr_mult": 999.0,
+    "tp2_partial_pct": 0.0,
+    "trail_atr_mult": 999.0,
+    "be_trigger_atr_mult": 999.0,
+    "ema_exit_period": 0,     # no EMA exit — pure SL/TP only
+    "hard_stop_mode": "trail",
+    "be_after_bars": 0,
+    "max_bars": 0,
+    "risk_pct": 0.005,
+}
+
 _QO_TRIAGE_PARAMS = {
     "sl_atr_mult": 1.5,
     "ema_exit_period": 10,
@@ -724,7 +739,7 @@ def cmd_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     finally:
         db.close()
 
-    W = 140
+    W = 160
     tradable_count = sum(1 for r in rows if r.candidate_status == "tradable")
     watchlist_count = len(rows) - tradable_count
     last_eval = rows[0].evaluated_at if rows else "—"
@@ -748,8 +763,8 @@ def cmd_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
                                               -(r.oos_calmar or 0.0)))
 
     COL_HDR = (f"  {'#':>3}  {'Status':<9} "
-               f"{'IS Cal':>7} {'IS Ret':>7} {'IS DD':>6} {'IS Tr':>5}  "
-               f"{'OOS Cal':>7} {'OOS Ret':>8} {'OOS DD':>7} {'OOS Tr':>6}  "
+               f"{'IS Cal':>7} {'IS Ret':>7} {'IS DD':>6} {'IS WR':>6} {'IS Tr':>5}  "
+               f"{'OOS Cal':>7} {'OOS Ret':>8} {'OOS DD':>7} {'OOS WR':>7} {'OOS Tr':>6}  "
                f"Trend  RVol  SL  STR RSM")
 
     for sid, group in sorted(by_strategy.items()):
@@ -768,17 +783,19 @@ def cmd_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             is_cal = row.is_calmar or 0.0
             is_ret = (row.is_annual_return or 0.0) * 100
             is_dd  = (row.is_max_drawdown  or 0.0) * 100
+            is_wr  = (row.is_win_rate      or 0.0) * 100
             is_tr  = row.is_trade_count or 0
             oos_cal = row.oos_calmar or 0.0
             oos_ret = (row.oos_annual_return or 0.0) * 100
             oos_dd  = (row.oos_max_drawdown  or 0.0) * 100
+            oos_wr  = (row.oos_win_rate     or 0.0) * 100
             oos_tr  = row.oos_trade_count or 0
             status  = "TRADABLE" if row.candidate_status == "tradable" else "watchlist"
-            oos_str = (f"{oos_cal:>7.2f} {oos_ret:>+8.1f} {oos_dd:>7.1f} {oos_tr:>6d}"
-                       if oos_tr else f"{'—':>7} {'—':>8} {'—':>7} {'—':>6}")
+            oos_str = (f"{oos_cal:>7.2f} {oos_ret:>+8.1f} {oos_dd:>7.1f} {oos_wr:>6.0f}% {oos_tr:>6d}"
+                       if oos_tr else f"{'—':>7} {'—':>8} {'—':>7} {'—':>7} {'—':>6}")
             print(
                 f"  {idx:>3}  {status:<9} "
-                f"{is_cal:>7.2f} {is_ret:>+7.1f} {is_dd:>6.1f} {is_tr:>5d}  "
+                f"{is_cal:>7.2f} {is_ret:>+7.1f} {is_dd:>6.1f} {is_wr:>5.0f}% {is_tr:>5d}  "
                 f"{oos_str}  "
                 f"{trend:<6} {rvol:<5} {sl:<4} {str_v:>3} {rsm_v:>3}"
             )
@@ -926,10 +943,299 @@ def cmd_chart(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     webbrowser.open(out_file.as_uri())
 
 
+def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """5-year regime discovery: which strategies have edge in uptrend/choppy/downtrend."""
+    import strategies  # noqa: F401
+    from core.registry import StrategyRegistry
+    from core.regime import label_regime, REGIMES
+    from validation.backtest import run_portfolio_backtest, _precompute_indicators
+
+    market   = adapter.market_id
+    today    = date.today()
+    y5_start = today - timedelta(days=1825)
+
+    universe       = adapter.universe(today, top_n=getattr(args, "symbols", None))
+    strategies_map = StrategyRegistry.for_market(market)
+
+    logger.info("=== %s regime-discover | 5yr %s → %s | symbols=%d strategies=%d ===",
+                market.upper(), y5_start, today, len(universe), len(strategies_map))
+
+    bm_close = _fetch_benchmark(adapter, y5_start, today)
+    if bm_close is None:
+        print("  ERROR: no benchmark data — cannot compute regime.")
+        return
+
+    regime_series = label_regime(bm_close["_bm_close"])
+    regime_date_map = {
+        (ts.date() if hasattr(ts, "date") else ts): r
+        for ts, r in regime_series.items()
+    }
+
+    regime_dist = regime_series.value_counts()
+    total_bars  = len(regime_series)
+
+    # Fetch + precompute all symbol data
+    all_dfs = []
+    for idx, symbol in enumerate(universe, 1):
+        logger.info("[%d/%d] fetching %s (5yr)", idx, len(universe), symbol)
+        df = adapter.ohlcv(symbol, y5_start, today)
+        df = _attach_benchmark(df, bm_close)
+        if df.empty or len(df) < 60:
+            continue
+        df.attrs = {"symbol": symbol, "market": market}
+        pdf = _precompute_indicators(df)
+        pdf.attrs = {"symbol": symbol, "market": market}
+        all_dfs.append(pdf)
+
+    if not all_dfs:
+        print("  No data fetched.")
+        return
+
+    print(f"\n  Data ready: {len(all_dfs)} symbols. Running {len(strategies_map)} strategies × 5yr backtest... please wait.\n")
+
+    EDGE_WR = 33.3  # breakeven for 2:1 RR
+
+    # Run all strategies first, collect tagged trades
+    all_strategy_trades: dict[str, list[dict]] = {}
+    for strategy_id, strategy_cls in strategies_map.items():
+        strategy = strategy_cls()
+        params   = {**strategy.default_params, **_REGIME_DISCOVERY_PARAMS}
+        try:
+            result = run_portfolio_backtest(all_dfs, strategy, params,
+                                            initial_capital=args.capital)
+            trades = result.get("trades", [])
+        except Exception as exc:
+            logger.warning("regime backtest error %s: %s", strategy_id, exc)
+            trades = []
+
+        tagged = []
+        for t in trades:
+            r = regime_date_map.get(t["entry_date"], "choppy")
+            tagged.append({**t, "regime": r, "year": t["entry_date"].year})
+        all_strategy_trades[strategy_id] = tagged
+
+    all_years = sorted({t["year"] for trades in all_strategy_trades.values() for t in trades})
+    YC = 11  # chars per year cell: "+22.0%/12 "
+    W  = 4 + 22 + 2 + 7 + 2 + len(all_years) * (YC + 2)
+
+    dist_str = "  |  ".join(
+        f"{r}: {regime_dist.get(r, 0) / total_bars * 100:.0f}% ({regime_dist.get(r, 0)}d)"
+        for r in REGIMES
+    )
+
+    print("\n" + "=" * W)
+    print(f"  {market.upper()} REGIME DISCOVERY — {today}  |  5yr: {y5_start} → {today}")
+    print(f"  Universe: {len(all_dfs)} symbols  |  Strategies: {len(strategies_map)}  |  "
+          f"SL=1.5×ATR  TP=3×ATR  (2:1 RR  edge=WR>{EDGE_WR:.0f}%)")
+    print(f"  Benchmark: {dist_str}")
+
+    year_hdr = "  ".join(f"{y:>{YC}}" for y in all_years)
+
+    for regime in REGIMES:
+        print("\n" + "=" * W)
+        print(f"  {regime.upper()}")
+        print("=" * W)
+        print(f"  {'Strategy':<22}  {'WR':>6}  {year_hdr}")
+        print("  " + "-" * (W - 4))
+
+        for strategy_id in strategies_map:
+            trades = all_strategy_trades[strategy_id]
+            r_trades = [t for t in trades if t["regime"] == regime]
+
+            if not r_trades:
+                blanks = "  ".join(f"{'—':>{YC}}" for _ in all_years)
+                print(f"  {strategy_id:<22}  {'—':>6}  {blanks}")
+                continue
+
+            wins = sum(1 for t in r_trades if t["pnl"] > 0)
+            wr   = wins / len(r_trades) * 100
+            edge = "✓" if wr >= EDGE_WR else "✗"
+            wr_str = f"{wr:.0f}%{edge}"
+
+            year_cols = []
+            for y in all_years:
+                yr = [t for t in r_trades if t["year"] == y]
+                if not yr:
+                    year_cols.append(f"{'—':>{YC}}")
+                else:
+                    ret = sum(t["pnl"] for t in yr) / args.capital * 100
+                    n   = len(yr)
+                    cell = f"{ret:>+5.1f}%/{n}"
+                    year_cols.append(f"{cell:>{YC}}")
+
+            print(f"  {strategy_id:<22}  {wr_str:>6}  {'  '.join(year_cols)}")
+
+    # ── DEPLOYMENT SUMMARY ────────────────────────────────────────────────
+    deploy: dict[str, list[str]] = {r: [] for r in REGIMES}
+    no_edge: list[str] = []
+    regime_results: list[dict] = []
+
+    for strategy_id in strategies_map:
+        trades  = all_strategy_trades[strategy_id]
+        has_edge = False
+        for regime in REGIMES:
+            r_trades = [t for t in trades if t["regime"] == regime]
+            wr = (sum(1 for t in r_trades if t["pnl"] > 0) / len(r_trades) * 100) if r_trades else 0.0
+            acc = wr >= EDGE_WR and len(r_trades) > 0
+            if acc:
+                deploy[regime].append(strategy_id)
+                has_edge = True
+            yearly = {}
+            for y in all_years:
+                yr = [t for t in r_trades if t["year"] == y]
+                if yr:
+                    yearly[str(y)] = {
+                        "ret_pct": round(sum(t["pnl"] for t in yr) / args.capital * 100, 2),
+                        "trade_count": len(yr),
+                    }
+            regime_results.append({
+                "strategy": strategy_id,
+                "regime":   regime,
+                "wr":       round(wr, 2),
+                "trade_count": len(r_trades),
+                "yearly":   yearly,
+                "acceptable": acc,
+            })
+        if not has_edge:
+            no_edge.append(strategy_id)
+
+    print("\n" + "=" * W)
+    print("  REGIME DEPLOYMENT MAP")
+    print("=" * W)
+    for regime in REGIMES:
+        strats = "  ".join(deploy[regime]) if deploy[regime] else "—"
+        print(f"  {regime.upper():<12} → {strats}")
+    if no_edge:
+        print(f"  {'DROP':<12} → {chr(32).join(no_edge)}  (no edge in any regime)")
+    print("=" * W + "\n")
+
+    # ── SAVE TO DB ────────────────────────────────────────────────────────
+    from db.models import SessionLocal, RegimeMapModel
+    db = SessionLocal()
+    try:
+        db.query(RegimeMapModel).filter_by(market=market).delete()
+        for row in regime_results:
+            db.add(RegimeMapModel(
+                market      = market,
+                strategy    = row["strategy"],
+                regime      = row["regime"],
+                wr          = row["wr"],
+                trade_count = row["trade_count"],
+                yearly      = row["yearly"],
+                acceptable  = row["acceptable"],
+            ))
+        db.commit()
+        logger.info("saved %d regime-map rows for %s", len(regime_results), market)
+    finally:
+        db.close()
+
+
+def cmd_regime_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Print saved regime discovery results from DB."""
+    from collections import defaultdict
+    from db.models import SessionLocal, RegimeMapModel
+    from core.regime import REGIMES
+
+    market = adapter.market_id
+    db = SessionLocal()
+    try:
+        rows = db.query(RegimeMapModel).filter_by(market=market).all()
+    finally:
+        db.close()
+
+    if not rows:
+        print("  No regime data. Run regime first.")
+        return
+
+    last_eval = rows[0].evaluated_at
+    all_years = sorted({y for r in rows for y in (r.yearly or {}).keys()})
+    EDGE_WR   = 33.3
+    YC        = 11
+    W         = 4 + 22 + 2 + 7 + 2 + len(all_years) * (YC + 2)
+
+    print("\n" + "=" * W)
+    print(f"  {market.upper()} REGIME REPORT  |  Last evaluated: {last_eval}")
+    print("=" * W)
+
+    by_regime: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_regime[r.regime].append(r)
+
+    year_hdr = "  ".join(f"{y:>{YC}}" for y in all_years)
+
+    for regime in REGIMES:
+        regime_rows = by_regime.get(regime, [])
+        print("\n" + "=" * W)
+        print(f"  {regime.upper()}")
+        print("=" * W)
+        print(f"  {'Strategy':<22}  {'WR':>6}  {year_hdr}")
+        print("  " + "-" * (W - 4))
+        for row in regime_rows:
+            edge   = "✓" if row.acceptable else "✗"
+            wr_str = f"{row.wr:.0f}%{edge}"
+            yearly = row.yearly or {}
+            year_cols = []
+            for y in all_years:
+                d = yearly.get(str(y))
+                if not d:
+                    year_cols.append(f"{'—':>{YC}}")
+                else:
+                    cell = f"{d['ret_pct']:>+5.1f}%/{d['trade_count']}"
+                    year_cols.append(f"{cell:>{YC}}")
+            print(f"  {row.strategy:<22}  {wr_str:>6}  {'  '.join(year_cols)}")
+
+    # Deployment map
+    deploy: dict[str, list[str]] = {r: [] for r in REGIMES}
+    no_edge: set[str] = set()
+    all_strats = {r.strategy for r in rows}
+    for r in rows:
+        if r.acceptable:
+            deploy[r.regime].append(r.strategy)
+    for s in all_strats:
+        if not any(s in deploy[r] for r in REGIMES):
+            no_edge.add(s)
+
+    print("\n" + "=" * W)
+    print("  REGIME DEPLOYMENT MAP")
+    print("=" * W)
+    for regime in REGIMES:
+        strats = "  ".join(sorted(set(deploy[regime]))) if deploy[regime] else "—"
+        print(f"  {regime.upper():<12} → {strats}")
+    if no_edge:
+        print(f"  {'DROP':<12} → {' '.join(sorted(no_edge))}")
+    print("=" * W + "\n")
+
+
+def cmd_regime_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Phase 3: regime-aware grid search using saved regime map. (coming soon)"""
+    from db.models import SessionLocal, RegimeMapModel
+    from core.regime import REGIMES
+
+    market = adapter.market_id
+    db = SessionLocal()
+    try:
+        rows = db.query(RegimeMapModel).filter_by(market=market, acceptable=True).all()
+    finally:
+        db.close()
+
+    if not rows:
+        print("  No acceptable regime mappings found. Run regime first.")
+        return
+
+    print(f"\n  {market.upper()} REGIME OPTIMISE — coming soon.")
+    print(f"  Will optimise {len(rows)} strategy×regime pairs using regime-filtered IS data.")
+    for regime in REGIMES:
+        strats = [r.strategy for r in rows if r.regime == regime]
+        if strats:
+            print(f"  {regime.upper():<12} → {', '.join(strats)}")
+    print()
+
+
 def make_parser(market_id: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=f"{market_id.upper()} market pipeline")
     parser.add_argument("command",
-                        choices=["scan", "diagnose", "paper", "live", "report", "optimise", "chart"])
+                        choices=["scan", "diagnose", "paper", "live", "report", "optimise", "chart",
+                                 "regime", "regime-report", "regime-optimise"])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--symbols", type=int,
@@ -946,7 +1252,10 @@ def run(adapter: MarketAdapter, command: str, args: argparse.Namespace) -> None:
         "paper":          lambda: cmd_paper(adapter, args),
         "live":           lambda: cmd_scan(adapter, args),
         "report":         lambda: cmd_report(adapter, args),
-        "optimise": lambda: cmd_optimise(adapter, args),
+        "optimise":       lambda: cmd_optimise(adapter, args),
         "chart":          lambda: cmd_chart(adapter, args),
+        "regime":         lambda: cmd_regime(adapter, args),
+        "regime-report":  lambda: cmd_regime_report(adapter, args),
+        "regime-optimise": lambda: cmd_regime_optimise(adapter, args),
     }
     dispatch.get(command, lambda: cmd_scan(adapter, args))()

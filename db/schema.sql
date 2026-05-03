@@ -69,6 +69,33 @@ CREATE TABLE IF NOT EXISTS strategy_params (
     UNIQUE (market, strategy)
 );
 
+CREATE TABLE IF NOT EXISTS strategy_candidates (
+    id                  BIGSERIAL PRIMARY KEY,
+    market              TEXT        NOT NULL,
+    strategy            TEXT        NOT NULL,
+    candidate_source    TEXT        NOT NULL,
+    candidate_status    TEXT        NOT NULL,
+    params              JSONB       NOT NULL,
+    gate_hits           INTEGER     NOT NULL DEFAULT 0,
+    gate_misses         JSONB       DEFAULT '[]',
+    is_annual_return    NUMERIC,
+    is_calmar           NUMERIC,
+    is_profit_factor    NUMERIC,
+    is_win_rate         NUMERIC,
+    is_trade_count      INTEGER,
+    is_max_drawdown     NUMERIC,
+    oos_annual_return   NUMERIC,
+    oos_calmar          NUMERIC,
+    oos_profit_factor   NUMERIC,
+    oos_win_rate        NUMERIC,
+    oos_trade_count     INTEGER,
+    oos_max_drawdown    NUMERIC,
+    oos_pass            BOOLEAN     NOT NULL DEFAULT FALSE,
+    evaluated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_candidates_market_status ON strategy_candidates(market, candidate_status, strategy);
+
 CREATE TABLE IF NOT EXISTS pipeline_logs (
     id          BIGSERIAL   PRIMARY KEY,
     market      TEXT        NOT NULL,

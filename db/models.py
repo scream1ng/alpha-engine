@@ -102,6 +102,47 @@ class StrategyParamsModel(Base):
     optimised_at     = Column(DateTime, default=func.now())
 
 
+class StrategyCandidateModel(Base):
+    __tablename__ = "strategy_candidates"
+
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    market               = Column(String, nullable=False)
+    strategy             = Column(String, nullable=False)
+    candidate_source     = Column(String, nullable=False)
+    candidate_status     = Column(String, nullable=False)
+    params               = Column(_JsonType, nullable=False)
+    gate_hits            = Column(Integer, nullable=False, default=0)
+    gate_misses          = Column(_JsonType, default=[])
+    is_annual_return     = Column(Float)
+    is_calmar            = Column(Float)
+    is_profit_factor     = Column(Float)
+    is_win_rate          = Column(Float)
+    is_trade_count       = Column(Integer)
+    is_max_drawdown      = Column(Float)
+    oos_annual_return    = Column(Float)
+    oos_calmar           = Column(Float)
+    oos_profit_factor    = Column(Float)
+    oos_win_rate         = Column(Float)
+    oos_trade_count      = Column(Integer)
+    oos_max_drawdown     = Column(Float)
+    oos_pass             = Column(Boolean, nullable=False, default=False)
+    evaluated_at         = Column(DateTime, default=func.now())
+
+
+class RegimeMapModel(Base):
+    __tablename__ = "regime_map"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    market       = Column(String, nullable=False)
+    strategy     = Column(String, nullable=False)
+    regime       = Column(String, nullable=False)   # uptrend / choppy / downtrend
+    wr           = Column(Float)
+    trade_count  = Column(Integer)
+    yearly       = Column(_JsonType, default={})    # {year: {ret_pct, trade_count}}
+    acceptable   = Column(Boolean, nullable=False, default=False)
+    evaluated_at = Column(DateTime, default=func.now())
+
+
 class PipelineLog(Base):
     __tablename__ = "pipeline_logs"
 

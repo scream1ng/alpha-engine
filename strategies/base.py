@@ -72,7 +72,11 @@ class Strategy(ABC):
         from core.indicators import sma
 
         close = float(df["close"].iloc[-1])
-        sma_values = [(period, float(sma(df, period).iloc[-1])) for period in periods]
+        sma_values = []
+        for period in periods:
+            col = f"_sma{period}"
+            val = float(df[col].iloc[-1]) if col in df.columns else float(sma(df, period).iloc[-1])
+            sma_values.append((period, val))
         if any(close < sma_val for _, sma_val in sma_values):
             return False
         if len(sma_values) < 2:
