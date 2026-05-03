@@ -16,24 +16,21 @@ MARKETS = [
 ]
 
 INTERACTIVE_COMMANDS = [
-    ("quick-report", "3yr annual return by strategy & filter phase"),
-    ("optimise-filter", "Phase 1 — optimise trend / RVol / RSM filters"),
-    ("optimise-risk", "Phase 2 — optimise SL / TP / BE / hard stop"),
-    ("report",   "View last optimise result (instant)"),
-    ("scan",     "Generate today's signals (live strategies only)"),
-    ("paper",    "Paper trading simulation (last 90 days)"),
+    ("optimise", "5-phase IS/OOS optimise — triage → grid → gate → OOS exam"),
+    ("report",         "View last optimise result from DB (instant)"),
+    ("chart",          "Interactive trade chart for best candidate (opens browser)"),
+    ("scan",           "Generate today's signals (live strategies only)"),
+    ("paper",          "Paper trading simulation (last 90 days)"),
+    ("diagnose",       "Check how many signals each strategy fires"),
 ]
 
 CLI_COMMANDS = [
-    ("quick-report", "3yr annual return by strategy & filter phase"),
-    ("optimise", "Walk-forward optimise — find best params"),
-    ("optimise-filter", "Phase 1 — optimise trend / RVol / RSM filters"),
-    ("optimise-risk", "Phase 2 — optimise SL / TP / BE / hard stop"),
-    ("report",   "View last optimise result (instant)"),
-    ("scan",     "Generate today's signals (live strategies only)"),
-    ("paper",    "Paper trading simulation (last 90 days)"),
-    ("diagnose", "Check how many signals each strategy fires"),
-    ("validate", "optimise + paper in sequence"),
+    ("optimise", "5-phase IS/OOS optimise — triage → grid → gate → OOS exam"),
+    ("report",         "View last optimise result from DB (instant)"),
+    ("chart",          "Interactive trade chart for best candidate (opens browser)"),
+    ("scan",           "Generate today's signals (live strategies only)"),
+    ("paper",          "Paper trading simulation (last 90 days)"),
+    ("diagnose",       "Check how many signals each strategy fires"),
 ]
 
 _ADAPTERS = {
@@ -108,10 +105,17 @@ def interactive() -> None:
     # Capital stays as an internal sizing baseline; interactive flows default it.
     capital = 1_000_000
     symbols = None
-    if command in ("optimise", "optimise-filter", "optimise-risk", "validate", "diagnose", "paper"):
+    candidate = 1
+    chart_strategy = None
+    if command in ("optimise", "chart", "diagnose", "paper"):
         symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
+    if command == "chart":
+        chart_strategy = _ask("Strategy name (blank = all strategies)", "").strip() or None
+        raw = _ask("Candidate # within strategy (from report)", "1")
+        candidate = int(raw) if raw.isdigit() else 1
 
-    args = argparse.Namespace(capital=capital, symbols=symbols, dry_run=False, strategy_jobs=1)
+    args = argparse.Namespace(capital=capital, symbols=symbols, candidate=candidate,
+                              chart_strategy=chart_strategy, dry_run=False, strategy_jobs=1)
 
     from db.models import init_db
     init_db()
@@ -131,6 +135,10 @@ def cli() -> None:
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--symbols", type=int)
     parser.add_argument("--strategy-jobs", type=int, default=1)
+    parser.add_argument("--candidate", type=int, default=1,
+                        help="Which candidate to chart within strategy (1-based, default: 1)")
+    parser.add_argument("--strategy", dest="chart_strategy", default=None,
+                        help="Strategy name to chart (default: all strategies)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
