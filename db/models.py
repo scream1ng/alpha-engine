@@ -137,10 +137,57 @@ class RegimeMapModel(Base):
     strategy     = Column(String, nullable=False)
     regime       = Column(String, nullable=False)   # uptrend / choppy / downtrend
     wr           = Column(Float)
+    calmar       = Column(Float)
+    max_dd       = Column(Float)
     trade_count  = Column(Integer)
-    yearly       = Column(_JsonType, default={})    # {year: {ret_pct, trade_count}}
+    yearly       = Column(_JsonType, default={})    # {year: {ret_pct, trade_count, wr}}
     acceptable   = Column(Boolean, nullable=False, default=False)
     evaluated_at = Column(DateTime, default=func.now())
+
+
+class RegimeLabelModel(Base):
+    __tablename__ = "regime_labels"
+
+    id       = Column(Integer, primary_key=True, autoincrement=True)
+    market   = Column(String, nullable=False)
+    date     = Column(Date, nullable=False)
+    regime   = Column(String, nullable=False)
+    saved_at = Column(DateTime, default=func.now())
+
+
+class RegimeOptimiseModel(Base):
+    __tablename__ = "regime_optimise"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    market           = Column(String, nullable=False)
+    strategy         = Column(String, nullable=False)
+    regime           = Column(String, nullable=False)
+    params           = Column(_JsonType, nullable=False)
+    is_calmar        = Column(Float)
+    is_win_rate      = Column(Float)
+    is_trade_count   = Column(Integer)
+    is_annual_return = Column(Float)
+    oos_calmar       = Column(Float)
+    oos_win_rate     = Column(Float)
+    oos_trade_count  = Column(Integer)
+    oos_annual_return = Column(Float)
+    oos_pass         = Column(Boolean, nullable=False, default=False)
+    best_combo       = Column(String)
+    optimised_at     = Column(DateTime, default=func.now())
+
+
+class ResearchRunModel(Base):
+    __tablename__ = "research_runs"
+
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    market            = Column(String, nullable=False)
+    as_of             = Column(Date, nullable=False)
+    symbols_requested = Column(Integer)
+    symbols_loaded    = Column(Integer, nullable=False, default=0)
+    export_path       = Column(String)
+    markdown_path     = Column(String)
+    summary           = Column(_JsonType, default={})
+    completed_at      = Column(DateTime, default=func.now())
 
 
 class PipelineLog(Base):
@@ -178,6 +225,24 @@ def init_db() -> None:
             for col_def in new_cols:
                 try:
                     conn.execute(text(f"ALTER TABLE strategy_params ADD COLUMN {col_def}"))
+                    conn.commit()
+                except Exception:
+                    pass  # column already exists
+            for col_def in ["calmar REAL", "max_dd REAL"]:
+                try:
+                    conn.execute(text(f"ALTER TABLE regime_map ADD COLUMN {col_def}"))
+                    conn.commit()
+                except Exception:
+                    pass  # column already exists
+            for col_def in ["markdown_path TEXT"]:
+                try:
+                    conn.execute(text(f"ALTER TABLE research_runs ADD COLUMN {col_def}"))
+                    conn.commit()
+                except Exception:
+                    pass  # column already exists
+            for col_def in ["best_combo TEXT"]:
+                try:
+                    conn.execute(text(f"ALTER TABLE regime_optimise ADD COLUMN {col_def}"))
                     conn.commit()
                 except Exception:
                     pass  # column already exists

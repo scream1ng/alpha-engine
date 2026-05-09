@@ -1,8 +1,14 @@
 """AlphaEngine interactive menu. Run: python run.py"""
 from __future__ import annotations
 import argparse
+import io
 import sys
 import logging
+
+if hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "buffer"):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -15,28 +21,10 @@ MARKETS = [
     ("all",       "All markets"),
 ]
 
-INTERACTIVE_COMMANDS = [
-    ("optimise",        "5-phase IS/OOS optimise — triage → grid → gate → OOS exam"),
-    ("report",          "View last optimise result from DB (instant)"),
-    ("chart",           "Interactive trade chart for best candidate (opens browser)"),
+COMMANDS = [
     ("regime",          "5yr regime discovery — which strategies suit uptrend/choppy/downtrend"),
-    ("regime-report",   "View last regime discovery result from DB (instant)"),
-    ("regime-optimise", "Phase 3 regime-aware grid search (coming soon)"),
-    ("scan",            "Generate today's signals (live strategies only)"),
-    ("paper",           "Paper trading simulation (last 90 days)"),
-    ("diagnose",        "Check how many signals each strategy fires"),
-]
-
-CLI_COMMANDS = [
-    ("optimise",        "5-phase IS/OOS optimise — triage → grid → gate → OOS exam"),
-    ("report",          "View last optimise result from DB (instant)"),
-    ("chart",           "Interactive trade chart for best candidate (opens browser)"),
-    ("regime",          "5yr regime discovery — which strategies suit uptrend/choppy/downtrend"),
-    ("regime-report",   "View last regime discovery result from DB (instant)"),
-    ("regime-optimise", "Phase 3 regime-aware grid search (coming soon)"),
-    ("scan",            "Generate today's signals (live strategies only)"),
-    ("paper",           "Paper trading simulation (last 90 days)"),
-    ("diagnose",        "Check how many signals each strategy fires"),
+    ("optimise-regime", "TP exit optimisation on PASS regime pairs (3 combos)"),
+    ("regime-report",   "View last regime discovery result (instant)"),
 ]
 
 _ADAPTERS = {
@@ -58,14 +46,13 @@ def _get_adapter(market: str):
 
 
 def _menu(title: str, options: list[tuple[str, str]]) -> str:
-    """Print numbered menu, return selected key. Accepts number or key."""
     W = 52
     print()
     print("  ┌" + "─" * W + "┐")
     print(f"  │  {title:<{W-2}}│")
     print("  ├" + "─" * W + "┤")
     for i, (key, label) in enumerate(options, 1):
-        row = f"  {i}.  {key:<12}  {label}"
+        row = f"  {i}.  {key:<14}  {label}"
         print(f"  │  {row:<{W-2}}│")
     print("  └" + "─" * W + "┘")
 
@@ -105,23 +92,14 @@ def interactive() -> None:
     print("  ║            ALPHA ENGINE  — signal system            ║")
     print("  ╚══════════════════════════════════════════════════════╝")
 
-    market = _menu("SELECT MARKET", MARKETS)
-    command = _menu("SELECT COMMAND", INTERACTIVE_COMMANDS)
+    market  = _menu("SELECT MARKET", MARKETS)
+    command = _menu("SELECT COMMAND", COMMANDS)
 
-    # Capital stays as an internal sizing baseline; interactive flows default it.
-    capital = 1_000_000
     symbols = None
-    candidate = 1
-    chart_strategy = None
-    if command in ("optimise", "chart", "diagnose", "paper", "regime"):
+    if command in ("regime", "optimise-regime"):
         symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
-    if command == "chart":
-        chart_strategy = _ask("Strategy name (blank = all strategies)", "").strip() or None
-        raw = _ask("Candidate # within strategy (from report)", "1")
-        candidate = int(raw) if raw.isdigit() else 1
 
-    args = argparse.Namespace(capital=capital, symbols=symbols, candidate=candidate,
-                              chart_strategy=chart_strategy, dry_run=False, strategy_jobs=1)
+    args = argparse.Namespace(capital=1_000_000, symbols=symbols, dry_run=False)
 
     from db.models import init_db
     init_db()
@@ -134,17 +112,12 @@ def interactive() -> None:
 
 
 def cli() -> None:
-    """Non-interactive mode: python run.py th report"""
+    """Non-interactive mode: python run.py th regime"""
     parser = argparse.ArgumentParser(prog="python run.py")
     parser.add_argument("market", choices=[m for m, _ in MARKETS])
-    parser.add_argument("command", choices=[c for c, _ in CLI_COMMANDS])
+    parser.add_argument("command", choices=[c for c, _ in COMMANDS])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--symbols", type=int)
-    parser.add_argument("--strategy-jobs", type=int, default=1)
-    parser.add_argument("--candidate", type=int, default=1,
-                        help="Which candidate to chart within strategy (1-based, default: 1)")
-    parser.add_argument("--strategy", dest="chart_strategy", default=None,
-                        help="Strategy name to chart (default: all strategies)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 

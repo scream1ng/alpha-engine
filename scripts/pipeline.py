@@ -30,67 +30,91 @@ _REGIME_DISCOVERY_PARAMS = {
     "risk_pct": 0.005,
 }
 
-_QO_TRIAGE_PARAMS = {
+_OPT_REGIME_MIN_CALMAR = 0.3   # minimum baseline calmar to include pair in optimise-regime
+
+_OPT_REGIME_BASE = {
     "sl_atr_mult": 1.5,
-    "ema_exit_period": 10,
-    "ema_exit_always": True,
-    "hard_stop_mode": "ema10",
-    "tp1_atr_mult": 999.0,
-    "tp2_atr_mult": 999.0,
-    "tp1_partial_pct": 1.0,
-    "tp2_partial_pct": 1.0,
-    "trail_atr_mult": 999.0,
+    "tp1_atr_mult": 3.0,
     "be_trigger_atr_mult": 999.0,
+    "trail_atr_mult": 999.0,
     "be_after_bars": 0,
     "max_bars": 0,
     "risk_pct": 0.005,
-    "trend_sma_period": 0,
-    "rvol_min": 0.0,
 }
 
-_QO_BASE_PARAMS = {
-    "tp1_atr_mult": 2.0,
-    "tp1_partial_pct": 0.3,
-    "tp2_atr_mult": 4.0,
-    "tp2_partial_pct": 0.3,
-    "trail_atr_mult": 3.0,
-    "ema_exit_period": 10,
-    "be_after_bars": 3,
-    "be_trigger_atr_mult": 999.0,
-    "risk_pct": 0.005,
-}
-
-_QO_PARAM_SPACE = {
-    "trend_filter": [0, 50, 200],
-    "rvol_min": [1.2, 1.5, 2.0],
-    "sl_atr_mult": [1.0, 1.5],
-    "hard_stop_mode": ["ema10"],
-    "str_max": [0, 4],
-    "rsm_min": [0, 75],
-}
-
-_QO_SURVIVAL_GATES = {
-    "min_trades": 30,
-    "min_profit_factor": 1.25,
-    "max_drawdown": 0.15,
-    "min_calmar": 1.0,
-}
-
-_QO_TRIAGE_DD_CUTOFF = 0.30
-_QO_TARGET_PASS_RET = 0.0
-_QO_TARGET_PASS_DD = 0.20
+_OPT_REGIME_TP_COMBOS = [
+    {
+        "_label": "original",
+        "tp1_partial_pct": 1.0,
+        "tp2_atr_mult": 999.0,
+        "tp2_partial_pct": 0.0,
+        "ema_exit_period": 0,
+        "hard_stop_mode": "trail",
+    },
+    {
+        "_label": "tp1_50pct_ema10",
+        "tp1_partial_pct": 0.5,
+        "tp2_atr_mult": 999.0,
+        "tp2_partial_pct": 0.0,
+        "ema_exit_period": 10,
+        "hard_stop_mode": "ema10",
+    },
+    {
+        "_label": "tp1_30pct_tp2_30pct_ema10",
+        "tp1_partial_pct": 0.3,
+        "tp2_atr_mult": 6.0,
+        "tp2_partial_pct": 0.3,
+        "ema_exit_period": 10,
+        "hard_stop_mode": "ema10",
+    },
+]
 
 
-def _slice_dfs(dfs: list, start: date, end: date) -> list:
-    import pandas as pd
-    out = []
-    ts_start, ts_end = pd.Timestamp(start), pd.Timestamp(end)
-    for df in dfs:
-        sl = df[(df.index >= ts_start) & (df.index < ts_end)].copy()
-        sl.attrs = df.attrs
-        if len(sl) >= 60:
-            out.append(sl)
-    return out
+
+def _print_regime_summary(regime_results: list[dict], all_years: list[int], W: int, YC: int) -> None:
+    """Print PASS strategies summary + combined yearly totals."""
+    passing = [r for r in regime_results if r["acceptable"]]
+    RC = 12   # regime col
+    WC = 7    # wr col
+    CC = 8    # calmar col
+    DC = 7    # dd col
+    print("\n" + "=" * W)
+    print("  REGIME SUMMARY — COMBINED PORTFOLIO")
+    print("=" * W)
+    year_hdr = "  ".join(f"{y:>{YC}}" for y in all_years)
+    print(f"  {'Strategy':<22}  {'Regime':<{RC}}  {'WR':>{WC}}  {'Calmar':>{CC}}  {'DD':>{DC}}  {year_hdr}")
+    print("  " + "-" * (W - 4))
+    for row in passing:
+        wr_str  = f"{row['wr']:.0f}%✓"
+        cal_str = f"{row['calmar']:.2f}"
+        dd_str  = f"{row['max_dd']:.1f}%"
+        yearly  = row.get("yearly") or {}
+        year_cols = [_fmt_regime_cell(yearly.get(str(y)), YC) for y in all_years]
+        print(f"  {row['strategy']:<22}  {row['regime']:<{RC}}  {wr_str:>{WC}}  {cal_str:>{CC}}  {dd_str:>{DC}}  {'  '.join(year_cols)}")
+    print("  " + "-" * (W - 4))
+    # Combined totals
+    totals_ret: dict[str, float] = {}
+    totals_trades: dict[str, int] = {}
+    for row in passing:
+        for ys, d in (row.get("yearly") or {}).items():
+            totals_ret[ys]    = totals_ret.get(ys, 0.0) + d["ret_pct"]
+            totals_trades[ys] = totals_trades.get(ys, 0) + d["trade_count"]
+    total_cells = []
+    for y in all_years:
+        ys = str(y)
+        if ys in totals_ret:
+            total_cells.append(f"{totals_ret[ys]:>+.1f}%/{totals_trades[ys]}".rjust(YC))
+        else:
+            total_cells.append(f"{'—':>{YC}}")
+    print(f"  {'TOTAL':<22}  {'all':<{RC}}  {'':>{WC}}  {'':>{CC}}  {'':>{DC}}  {'  '.join(total_cells)}")
+    print("=" * W)
+
+
+def _fmt_regime_cell(d: dict | None, width: int) -> str:
+    """Format a yearly regime cell: '+7.4%/24' right-aligned to width."""
+    if not d:
+        return f"{'—':>{width}}"
+    return f"{d['ret_pct']:>+.1f}%/{d['trade_count']}".rjust(width)
 
 
 def _fetch_benchmark(adapter: MarketAdapter, start: date, end: date):
@@ -132,815 +156,17 @@ def _load_live_params(market: str, strategy_id: str) -> dict | None:
     return None
 
 
-def _strategy_job_count(args: argparse.Namespace, total_strategies: int) -> int:
-    requested = max(int(getattr(args, "strategy_jobs", 1) or 1), 1)
-    return min(requested, total_strategies)
-
-
-def cmd_scan(adapter: MarketAdapter, args: argparse.Namespace) -> list:
-    import strategies  # noqa: F401
-    from core.registry import StrategyRegistry
-    from core.guard import apply_lookahead_guard
-    from core.ranker import rank_signals
-    from core.risk import apply_heat_limit
-
-    market = adapter.market_id
-    today = date.today()
-    start = today - timedelta(days=365)
-
-    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
-    strategies_map = StrategyRegistry.for_market(market)
-    logger.info("%s scan — %s | symbols=%d strategies=%s",
-                market.upper(), today, len(universe), list(strategies_map.keys()))
-
-    bm_close = _fetch_benchmark(adapter, start, today)
-    all_signals = []
-    skipped = 0
-
-    for symbol in universe:
-        df = adapter.ohlcv(symbol, start, today)
-        if df.empty or len(df) < 60:
-            skipped += 1
-            continue
-        df = apply_lookahead_guard(df, today)
-        df = _attach_benchmark(df, bm_close)
-        df.attrs = {"symbol": symbol, "market": market}
-
-        sym_signals = []
-        for strategy_id, strategy_cls in strategies_map.items():
-            params = _load_live_params(market, strategy_id)
-            if params is None:
-                continue
-            strategy = strategy_cls()
-            try:
-                signals = strategy.scan(df, params)
-                if signals:
-                    logger.info("  + %s / %s → %d signal(s)", symbol, strategy_id, len(signals))
-                sym_signals.extend(signals)
-            except Exception as exc:
-                logger.warning("  scan error %s/%s: %s", symbol, strategy_id, exc)
-        all_signals.extend(sym_signals)
-
-    logger.info("scan done: %d symbols scanned, %d skipped, %d raw signals",
-                len(universe) - skipped, skipped, len(all_signals))
-
-    ranked = rank_signals(all_signals)
-    approved = apply_heat_limit(ranked, current_heat=0.0)
-    logger.info("after ranking+heat filter: %d approved", len(approved))
-    for sig in approved:
-        logger.info(
-            "  %s | %s | entry=%.2f sl=%.2f tp1=%.2f rr=%.2f score=%.1f",
-            sig.symbol, sig.strategy, sig.entry, sig.sl, sig.tp1, sig.rr, sig.score,
-        )
-    return approved
-
-
-def cmd_diagnose(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    import strategies  # noqa: F401
-    from core.registry import StrategyRegistry
-    from core.guard import apply_lookahead_guard
-
-    market = adapter.market_id
-    today = date.today()
-    start = today - timedelta(days=365)
-
-    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
-    strategies_map = StrategyRegistry.for_market(market)
-
-    fire_count: dict[str, dict[str, int]] = {sid: {} for sid in strategies_map}
-    sample_signals: dict[str, list] = {sid: [] for sid in strategies_map}
-
-    print(f"\nDIAGNOSE [{market.upper()}]: scanning {len(universe)} symbols × "
-          f"{len(strategies_map)} strategies over 12 months ({start} → {today})\n")
-
-    bm_close = _fetch_benchmark(adapter, start, today)
-
-    for symbol in universe:
-        df = adapter.ohlcv(symbol, start, today)
-        if df.empty or len(df) < 60:
-            print(f"  {symbol}: skip (only {len(df)} bars)")
-            continue
-        df = apply_lookahead_guard(df, today)
-        df = _attach_benchmark(df, bm_close)
-        df.attrs = {"symbol": symbol, "market": market}
-
-        for strategy_id, strategy_cls in strategies_map.items():
-            strategy = strategy_cls()
-            count = 0
-            for i in range(50, len(df)):
-                bar_df = df.iloc[: i + 1].copy()
-                bar_df.attrs = df.attrs
-                try:
-                    sigs = strategy.scan(bar_df, strategy.default_params)
-                    if sigs:
-                        count += len(sigs)
-                        if len(sample_signals[strategy_id]) < 3:
-                            s = sigs[0]
-                            sample_signals[strategy_id].append(
-                                f"  {symbol} @ {df.index[i].date()} "
-                                f"entry={s.entry:.2f} sl={s.sl:.2f} rr={s.rr:.2f}"
-                            )
-                except Exception:
-                    pass
-            if count:
-                fire_count[strategy_id][symbol] = count
-
-    print("=" * 70)
-    print(f"  {'STRATEGY':<20} {'TOTAL SIGNALS':>14} {'SYMBOLS HIT':>12} {'AVG/SYMBOL':>12}")
-    print("  " + "-" * 66)
-    for sid in strategies_map:
-        counts = fire_count[sid]
-        total = sum(counts.values())
-        n_syms = len(counts)
-        avg = total / n_syms if n_syms else 0
-        flag = "" if total >= 30 else "  ← TOO FEW"
-        print(f"  {sid:<20} {total:>14} {n_syms:>12} {avg:>11.1f}x{flag}")
-        for line in sample_signals[sid]:
-            print(f"    SAMPLE: {line}")
-    print("=" * 70)
-    print()
-    print("GUIDE:")
-    print("  < 10 total → strategy barely fires. Loosen conditions.")
-    print("  10-50      → fires but rare. OK for low-frequency strategies.")
-    print("  50+        → healthy signal flow. Ready to optimise.")
-    print()
-
-
-def cmd_paper(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    import strategies  # noqa: F401
-    from core.ledger import PortfolioLedger
-    from core.paper_trade import PaperTrader
-    from core.guard import apply_lookahead_guard
-    from core.registry import StrategyRegistry
-
-    market = adapter.market_id
-    today = date.today()
-    start = today - timedelta(days=90)
-
-    ledger = PortfolioLedger()
-    trader = PaperTrader(capital=args.capital, ledger=ledger)
-    strategies_map = StrategyRegistry.for_market(market)
-
-    for symbol in adapter.universe(today, top_n=getattr(args, "symbols", None)):
-        df = adapter.ohlcv(symbol, start, today)
-        if df.empty or len(df) < 60:
-            continue
-        df.attrs = {"symbol": symbol, "market": market}
-
-        for i in range(50, len(df)):
-            bar_df = df.iloc[: i + 1].copy()
-            bar_df.attrs = df.attrs
-            bar = df.iloc[i]
-            bar_date = bar.name.date()
-            bar_dict = {
-                "open": float(bar["open"]),
-                "high": float(bar["high"]),
-                "low": float(bar["low"]),
-                "close": float(bar["close"]),
-            }
-            trader.process_bar(bar_dict, bar_date)
-
-            for strategy_id, strategy_cls in strategies_map.items():
-                strategy = strategy_cls()
-                params = _load_live_params(market, strategy_id)
-                try:
-                    signals = strategy.scan(bar_df, params)
-                    for sig in signals:
-                        trader.submit_signal(sig, bar_date)
-                except Exception as exc:
-                    logger.debug("paper signal error %s: %s", symbol, exc)
-
-    summary = ledger.pnl_summary()
-    logger.info("paper trading summary: %s", json.dumps(summary, indent=2))
-
-
-def _qr_eval_strategy(strategy_cls, phase_params: dict, windows: list, capital: float) -> list:
-    """Evaluate one strategy across all windows for one phase. Module-level for joblib pickling."""
-    from validation.backtest import run_portfolio_backtest
-    strategy = strategy_cls()
-    params = {**strategy.default_params, **phase_params}
-    results = []
-    for _, wdfs in windows:
-        if wdfs:
-            results.append(run_portfolio_backtest(wdfs, strategy, params, initial_capital=capital))
-        else:
-            results.append(None)
-    return results
-
-
-def _qo_eval_combo(strategy_cls, combo: dict, base_params: dict, dfs: list, capital: float) -> dict:
-    """Module-level for joblib. Evaluate one grid combo on IS dfs."""
-    from validation.backtest import run_portfolio_backtest
-    strategy = strategy_cls()
-    params = {**strategy.default_params, **base_params, **combo}
-    try:
-        m = run_portfolio_backtest(dfs, strategy, params, initial_capital=capital)
-        m["params"] = params
-        return m
-    except Exception:
-        return {
-            "trade_count": 0, "params": params, "annual_return": 0.0,
-            "max_drawdown": 0.0, "calmar": 0.0, "profit_factor": 0.0, "win_rate": 0.0,
-        }
-
-
-def _qo_gate_checks(metrics: dict) -> dict[str, bool]:
-    g = _QO_SURVIVAL_GATES
-    return {
-        "trades": metrics.get("trade_count", 0) >= g["min_trades"],
-        "profit_factor": metrics.get("profit_factor", 0.0) >= g["min_profit_factor"],
-        "drawdown": (metrics.get("max_drawdown", 0.0) or 0.0) <= g["max_drawdown"],
-        "calmar": (metrics.get("calmar", 0.0) or 0.0) >= g["min_calmar"],
-    }
-
-
-def _qo_rank_key(entry: dict) -> tuple:
-    m = entry["metrics"]
-    return (
-        int(entry.get("gate_hits", 0)),
-        float(m.get("annual_return", 0.0) or 0.0),
-        float(m.get("calmar", 0.0) or 0.0),
-        float(m.get("profit_factor", 0.0) or 0.0),
-        float(m.get("win_rate", 0.0) or 0.0),
-        -float(m.get("max_drawdown", 0.0) or 0.0),
-        int(m.get("trade_count", 0) or 0),
-    )
-
-
-def _qo_trend_label(params: dict) -> str:
-    trend = params.get("trend_filter", params.get("trend_sma_period", 0))
-    return str(trend or "off")
-
-
-def _save_optimise_candidates(market: str, candidates: list[dict]) -> None:
-    if not candidates:
-        return
-
-    from db.models import SessionLocal, StrategyCandidateModel
-
+def _load_regime_params(market: str, strategy_id: str, regime: str) -> dict | None:
+    """Load best params for strategy+regime from optimise-regime results."""
+    from db.models import SessionLocal, RegimeOptimiseModel
     db = SessionLocal()
     try:
-        db.query(StrategyCandidateModel).filter_by(market=market).delete()
-        for candidate in candidates:
-            is_metrics = candidate["is_metrics"]
-            oos_metrics = candidate["oos_metrics"]
-            db.add(
-                StrategyCandidateModel(
-                    market=market,
-                    strategy=candidate["strategy_id"],
-                    candidate_source=candidate["source"],
-                    candidate_status="tradable" if candidate["oos_pass"] else "watchlist",
-                    params=candidate["params"],
-                    gate_hits=int(candidate.get("gate_hits", 0)),
-                    gate_misses=list(candidate.get("gate_misses", [])),
-                    is_annual_return=is_metrics.get("annual_return"),
-                    is_calmar=is_metrics.get("calmar"),
-                    is_profit_factor=is_metrics.get("profit_factor"),
-                    is_win_rate=is_metrics.get("win_rate"),
-                    is_trade_count=is_metrics.get("trade_count"),
-                    is_max_drawdown=is_metrics.get("max_drawdown"),
-                    oos_annual_return=oos_metrics.get("annual_return"),
-                    oos_calmar=oos_metrics.get("calmar"),
-                    oos_profit_factor=oos_metrics.get("profit_factor"),
-                    oos_win_rate=oos_metrics.get("win_rate"),
-                    oos_trade_count=oos_metrics.get("trade_count"),
-                    oos_max_drawdown=oos_metrics.get("max_drawdown"),
-                    oos_pass=bool(candidate["oos_pass"]),
-                )
-            )
-        db.commit()
-        logger.info("saved %d optimise candidates for %s", len(candidates), market)
+        row = db.query(RegimeOptimiseModel).filter_by(
+            market=market, strategy=strategy_id, regime=regime
+        ).first()
+        return dict(row.params) if row else None
     finally:
         db.close()
-
-
-def cmd_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    import strategies  # noqa: F401
-    from core.registry import StrategyRegistry
-    from sklearn.model_selection import ParameterGrid
-    from validation.backtest import run_portfolio_backtest
-
-    market = adapter.market_id
-    today = date.today()
-
-    y1_end,  y1_start = today,    today - timedelta(days=365)
-    y2_end,  y2_start = y1_start, today - timedelta(days=730)
-    y3_end,  y3_start = y2_start, today - timedelta(days=1095)
-
-    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
-    strategies_map = StrategyRegistry.for_market(market)
-
-    logger.info("=== %s optimise | %s | symbols=%d strategies=%d ===",
-                market.upper(), today, len(universe), len(strategies_map))
-    logger.info("    IS (Y2+Y3): %s -> %s  |  OOS vault (Y1): %s -> %s",
-                y3_start, y1_start, y1_start, y1_end)
-
-    bm_close = _fetch_benchmark(adapter, y3_start, today)
-
-    all_dfs = []
-    for idx, symbol in enumerate(universe, start=1):
-        logger.info("[%d/%d] fetching %s (3yr)", idx, len(universe), symbol)
-        df = adapter.ohlcv(symbol, y3_start, today)
-        df = _attach_benchmark(df, bm_close)
-        if df.empty or len(df) < 60:
-            continue
-        df.attrs = {"symbol": symbol, "market": market}
-        all_dfs.append(df)
-
-    if not all_dfs:
-        logger.warning("=== no eligible symbols for %s optimise ===", market.upper())
-        return
-
-    from validation.backtest import _precompute_indicators
-    precomputed = []
-    for df in all_dfs:
-        saved = df.attrs
-        pdf = _precompute_indicators(df)
-        pdf.attrs = saved
-        precomputed.append(pdf)
-
-    oos_dfs    = _slice_dfs(precomputed, y1_start, y1_end)   # Y1 — held-out OOS vault
-    y2_dfs     = _slice_dfs(precomputed, y2_start, y2_end)
-    y3_dfs     = _slice_dfs(precomputed, y3_start, y3_end)
-    is_dfs     = _slice_dfs(precomputed, y3_start, y1_start)  # Y2+Y3 — in-sample fit
-
-    if not is_dfs:
-        logger.warning("=== no eligible IS symbols for %s optimise ===", market.upper())
-        return
-
-    W = 128
-    full_grid = list(ParameterGrid(_QO_PARAM_SPACE))
-    strategy_items = list(strategies_map.items())
-    strategy_jobs = _strategy_job_count(args, len(strategy_items))
-    combo_jobs = max(int(getattr(args, "strategy_jobs", 1) or 1), 1)
-
-    print("\n" + "=" * W)
-    print(f"  {market.upper()} OPTIMISE - {today}")
-    print(f"  Universe: {len(all_dfs)} symbols  |  IS (Y2+Y3): {y3_start} -> {y1_start}  |  OOS vault (Y1): {y1_start} -> {y1_end}")
-    print(f"  Strategies: {len(strategies_map)}  |  Grid combos: {len(full_grid)}  |  Params: trend/rvol/sl/runner/STR/RSM")
-    print(f"  Jobs: strategy={strategy_jobs}  combo={combo_jobs}")
-    print(f"  Fixed: TP1=2xATR@30%  TP2=4xATR@30%  BE after 3 bars")
-    print("=" * W)
-
-    # ── PHASE 2: NAKED TRIAGE (IS data) ────────────────────────────────────
-    print(f"\n  PHASE 2 - IS NAKED TRIAGE (EMA10 hard stop, no filters)")
-    print(f"  Discard if IS max_drawdown > {_QO_TRIAGE_DD_CUTOFF*100:.0f}%")
-    print("  " + "-" * (W - 4))
-    print(f"  {'Strategy':<22} {'IS Ret':>8} {'IS DD':>7} {'Calmar':>8} {'Trades':>7} {'WR':>6}  Status")
-    print("  " + "-" * (W - 4))
-
-    triage_raw = Parallel(n_jobs=strategy_jobs)(
-        delayed(_qr_eval_strategy)(strategy_cls, _QO_TRIAGE_PARAMS, [("IS", is_dfs)], args.capital)
-        for _, strategy_cls in strategy_items
-    )
-
-    survivors: list[tuple[str, type]] = []
-    for (strategy_id, strategy_cls), row_results in zip(strategy_items, triage_raw):
-        agg = row_results[0]
-        if not agg or agg.get("trade_count", 0) == 0:
-            print(f"  {strategy_id:<22} {'N/A':>8} {'N/A':>7} {'N/A':>8} {'N/A':>7} {'N/A':>6}  SKIP (no trades)")
-            continue
-        ret = agg.get("annual_return", 0.0) * 100
-        dd  = agg.get("max_drawdown",  0.0) * 100
-        cal = agg.get("calmar",        0.0)
-        tr  = agg.get("trade_count",   0)
-        wr  = agg.get("win_rate",      0.0) * 100
-        fail = (agg.get("max_drawdown", 0.0) or 0.0) > _QO_TRIAGE_DD_CUTOFF
-        status = f"FAIL DD>{_QO_TRIAGE_DD_CUTOFF*100:.0f}%" if fail else "PASS"
-        print(f"  {strategy_id:<22} {ret:>+8.1f} {dd:>7.1f} {cal:>8.2f} {tr:>7d} {wr:>5.0f}%  {status}")
-        if not fail:
-            survivors.append((strategy_id, strategy_cls))
-
-    print("  " + "-" * (W - 4))
-    print(f"  Survivors: {len(survivors)}/{len(strategy_items)}  {[s for s, _ in survivors]}")
-
-    if not survivors:
-        print("\n  All strategies failed triage. Lower _QO_TRIAGE_DD_CUTOFF or review strategies.")
-        print("=" * W + "\n")
-        return
-
-    # ── PHASE 3: GRID SEARCH (IS data) ─────────────────────────────────────
-    _ps = _QO_PARAM_SPACE
-    print(f"\n  PHASE 3 - GRID SEARCH ({len(full_grid)} combos x {len(survivors)} strategies, IS data, objective=Calmar)")
-    print(f"  Grid: trend={_ps['trend_filter']}  rvol={_ps['rvol_min']}  sl={_ps['sl_atr_mult']}  "
-          f"runner={_ps['hard_stop_mode']}  str={_ps['str_max']}  rsm={_ps['rsm_min']}")
-    print("  " + "-" * (W - 4))
-    print(f"  {'Strategy':<22} {'BestCalmar':>10} {'Ret':>7} {'DD':>6} {'Tr':>5}  BestParams                     Pass/Total")
-    print("  " + "-" * (W - 4))
-
-    leaderboard: list[dict] = []
-    for strategy_id, strategy_cls in survivors:
-        combo_results = Parallel(n_jobs=combo_jobs)(
-            delayed(_qo_eval_combo)(strategy_cls, combo, _QO_BASE_PARAMS, is_dfs, args.capital)
-            for combo in full_grid
-        )
-        combo_results = [r for r in combo_results if r.get("trade_count", 0) > 0]
-        if not combo_results:
-            print(f"  {strategy_id}: no combos produced trades")
-            continue
-        for r in combo_results:
-            gate_checks = _qo_gate_checks(r)
-            passes = all(gate_checks.values())
-            leaderboard.append({
-                "strategy_id":  strategy_id,
-                "strategy_cls": strategy_cls,
-                "params":       r["params"],
-                "metrics":      r,
-                "gate_checks":  gate_checks,
-                "gate_hits":    sum(1 for ok in gate_checks.values() if ok),
-                "passes_gate":  passes,
-            })
-        best = max(combo_results, key=lambda r: float(r.get("calmar", 0.0) or 0.0))
-        bp = best.get("params", {})
-        best_params_str = (f"runner={bp.get('hard_stop_mode','?')}  "
-                           f"trend={_qo_trend_label(bp)}  "
-                           f"rvol={bp.get('rvol_min',0)}  "
-                           f"sl={bp.get('sl_atr_mult',0)}")
-        n_pass = sum(1 for e in leaderboard if e["strategy_id"] == strategy_id and e["passes_gate"])
-        print(f"  {strategy_id:<22} {best.get('calmar',0):>10.2f} {best.get('annual_return',0)*100:>+7.1f} "
-              f"{(best.get('max_drawdown',0) or 0)*100:>6.1f} {best.get('trade_count',0):>5d}  "
-              f"{best_params_str:<35} {n_pass}/{len(combo_results)}")
-
-    # ── PHASE 4: SURVIVAL GATES (top 5 per strategy) ──────────────────────
-    passing = [e for e in leaderboard if e["passes_gate"]]
-    passing.sort(key=_qo_rank_key, reverse=True)
-
-    g = _QO_SURVIVAL_GATES
-    _GATE_KEYS = ["trades", "profit_factor", "drawdown", "calmar"]
-    _GATE_HDR  = ["Tr", "PF", "DD", "Cal"]
-
-    print(f"\n  PHASE 4 - SURVIVAL GATES  (top 5 per strategy)")
-    print(f"  Gates: Trades>={g['min_trades']}  PF>={g['min_profit_factor']}  DD<={g['max_drawdown']*100:.0f}%  Calmar>={g['min_calmar']}")
-    print("  " + "-" * (W - 4))
-    print(f"  {'#':>3}  {'Strategy':<22} {'Calmar':>7} {'Ret':>7} {'DD':>6} {'Tr':>5} {'PF':>5} {'WR':>5}  "
-          f"{'Trend':<6} {'RVol':<5} {'SL':<4}  {'|':1}  {'  '.join(_GATE_HDR)}")
-    print("  " + "-" * (W - 4))
-
-    phase5_label = "passed-gate"
-
-    # Collect top-5 per strategy from full leaderboard (sorted by calmar desc)
-    strat_entries: dict[str, list] = {}
-    for e in sorted(leaderboard, key=lambda x: float(x["metrics"].get("calmar", 0.0) or 0.0), reverse=True):
-        sid = e["strategy_id"]
-        if len(strat_entries.setdefault(sid, [])) < 5:
-            strat_entries[sid].append(e)
-
-    all_strategy_ids = list(strat_entries.keys())
-    for sid in all_strategy_ids:
-        entries = strat_entries[sid]
-        n_pass = sum(1 for e in leaderboard if e["strategy_id"] == sid and e["passes_gate"])
-        n_total = sum(1 for e in leaderboard if e["strategy_id"] == sid)
-        print(f"\n  {sid}  ({n_pass}/{n_total} pass gates)")
-        for rank, e in enumerate(entries, start=1):
-            m = e["metrics"]
-            p = e["params"]
-            gc = e.get("gate_checks", {})
-            gate_cols = "  ".join("✓" if gc.get(k) else "✗" for k in _GATE_KEYS)
-            ok_marker = " " if e["passes_gate"] else "·"
-            print(
-                f"  {ok_marker}{rank:>2}  {'':<22} "
-                f"{float(m.get('calmar',0.0) or 0.0):>7.2f} "
-                f"{m.get('annual_return',0.0)*100:>+7.1f} "
-                f"{(m.get('max_drawdown',0.0) or 0.0)*100:>6.1f} "
-                f"{int(m.get('trade_count',0)):>5d} "
-                f"{m.get('profit_factor',0.0):>5.2f} "
-                f"{m.get('win_rate',0.0)*100:>4.0f}%  "
-                f"{_qo_trend_label(p):<6} "
-                f"{p.get('rvol_min',0.0):<5} "
-                f"{p.get('sl_atr_mult',0.0):<4}  "
-                f"{'|':1}  {gate_cols}"
-            )
-    print("\n  " + "-" * (W - 4))
-
-    # top_n for Phase 5: all gate passers
-    top_n: list[dict] = []
-    if not passing:
-        print("  No combos passed all gates.")
-        # Fallback: best combo per survivor strategy
-        seen_fb: set[str] = set()
-        for e in sorted(leaderboard, key=_qo_rank_key, reverse=True):
-            sid = e["strategy_id"]
-            if sid not in seen_fb:
-                seen_fb.add(sid)
-                top_n.append(e)
-        if not top_n:
-            print("=" * W + "\n")
-            return
-        print(f"  Fallback: carrying best combo per strategy ({len(top_n)}) to OOS exam...")
-        phase5_label = "near-miss"
-    else:
-        top_n = passing  # all gate passers go to OOS
-        print(f"  {len(passing)} combos passed gates. All {len(top_n)} going to OOS exam.")
-
-    # ── PHASE 5: OOS EXAM (Y1 vault) ───────────────────────────────────────
-    print(f"\n  PHASE 5 - OOS EXAM (Y1 vault: {y1_start} -> {y1_end})")
-    print(f"  Pass: annual_return > {_QO_TARGET_PASS_RET*100:.0f}%  AND  max_drawdown < {_QO_TARGET_PASS_DD*100:.0f}%")
-    print("  " + "-" * (W - 4))
-    print(f"  {'#':>3}  {'Strategy':<22} {'IS Cal':>7} {'OOS Ret':>9} {'OOS DD':>8} {'OOS Cal':>9} {'OOS Tr':>7} {'OOS WR':>7}  Verdict")
-    print("  " + "-" * (W - 4))
-
-    # Pre-populate all Phase 4 passers as watchlist (IS metrics only)
-    candidate_records: list[dict] = []
-    for e in passing:
-        candidate_records.append({
-            "strategy_id": e["strategy_id"],
-            "source":      phase5_label,
-            "params":      e["params"],
-            "gate_hits":   int(e.get("gate_hits", 0)),
-            "gate_misses": [name for name, ok in e.get("gate_checks", {}).items() if not ok],
-            "is_metrics":  e["metrics"],
-            "oos_metrics": {},
-            "oos_pass":    False,
-            "_entry":      e,  # temp ref for OOS update
-        })
-    # Index by (strategy_id, params key) for fast lookup
-    _cand_idx: dict[int, int] = {id(e["_entry"]): i for i, e in enumerate(candidate_records)}
-
-    oos_pass_count = 0
-    prev_sid = None
-    for idx, e in enumerate(top_n, start=1):
-        if e["strategy_id"] != prev_sid:
-            if prev_sid is not None:
-                print("  " + "·" * (W - 4))
-            prev_sid = e["strategy_id"]
-
-        strategy = e["strategy_cls"]()
-        try:
-            is_m  = e["metrics"]
-            oos_m = run_portfolio_backtest(oos_dfs, strategy, e["params"], initial_capital=args.capital) if oos_dfs else {}
-        except Exception as exc:
-            print(f"  {idx:>3}  {e['strategy_id']:<22} ERROR: {exc}")
-            continue
-
-        oos_ret = (oos_m.get("annual_return", 0.0) or 0.0) * 100
-        oos_dd  = (oos_m.get("max_drawdown",  0.0) or 0.0) * 100
-        oos_cal = oos_m.get("calmar", 0.0) or 0.0
-        oos_tr  = oos_m.get("trade_count", 0)
-        oos_wr  = (oos_m.get("win_rate", 0.0) or 0.0) * 100
-
-        oos_ok  = oos_ret > _QO_TARGET_PASS_RET * 100 and oos_dd < _QO_TARGET_PASS_DD * 100
-        verdict = "PASS ✓" if oos_ok else "FAIL ✗"
-        if oos_ok:
-            oos_pass_count += 1
-
-        # Update the matching candidate_record with OOS results
-        ci = _cand_idx.get(id(e))
-        if ci is not None:
-            candidate_records[ci]["oos_metrics"] = oos_m
-            candidate_records[ci]["oos_pass"]    = oos_ok
-
-        is_cal = float(is_m.get("calmar", 0.0) or 0.0)
-        print(
-            f"  {idx:>3}  {e['strategy_id']:<22} "
-            f"{is_cal:>7.2f} "
-            f"{oos_ret:>+9.1f} {oos_dd:>8.1f} {oos_cal:>9.2f} {oos_tr:>7d} {oos_wr:>6.0f}%  {verdict}"
-        )
-        p = e["params"]
-        print(
-            f"       runner={p.get('hard_stop_mode','?')}  "
-            f"trend={_qo_trend_label(p)}  "
-            f"rvol={p.get('rvol_min',0.0)}  "
-            f"sl={p.get('sl_atr_mult',0.0)}  "
-            f"str={p.get('str_max',0)}  "
-            f"rsm={p.get('rsm_min',0)}"
-        )
-
-    # Strip temp ref before saving
-    for c in candidate_records:
-        c.pop("_entry", None)
-
-    _save_optimise_candidates(market, candidate_records)
-
-    print("  " + "-" * (W - 4))
-    tradable_count = sum(1 for c in candidate_records if c["oos_pass"])
-    watchlist_count = len(candidate_records) - tradable_count
-    if oos_pass_count == 0:
-        print("  No candidates passed OOS exam.")
-    else:
-        print(f"  {oos_pass_count}/{len(top_n)} passed OOS exam.  "
-              f"Saved: {tradable_count} tradable + {watchlist_count} watchlist to strategy_candidates.")
-    print("=" * W + "\n")
-
-
-def cmd_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    """Print latest optimise candidates from DB — grouped by strategy."""
-    from collections import defaultdict
-    from db.models import SessionLocal, StrategyCandidateModel
-
-    market = adapter.market_id
-    db = SessionLocal()
-    try:
-        rows = (
-            db.query(StrategyCandidateModel)
-            .filter_by(market=market)
-            .order_by(StrategyCandidateModel.evaluated_at.desc())
-            .all()
-        )
-    finally:
-        db.close()
-
-    W = 160
-    tradable_count = sum(1 for r in rows if r.candidate_status == "tradable")
-    watchlist_count = len(rows) - tradable_count
-    last_eval = rows[0].evaluated_at if rows else "—"
-
-    print("\n" + "=" * W)
-    print(f"  {market.upper()} OPTIMISE REPORT — {date.today()}")
-    print(f"  {len(rows)} total  |  {tradable_count} tradable  |  {watchlist_count} watchlist  |  Last evaluated: {last_eval}")
-    print("=" * W)
-
-    if not rows:
-        print("  No candidates found. Run optimise first.")
-        print("=" * W + "\n")
-        return
-
-    # Group by strategy, tradable first within each group
-    by_strategy: dict[str, list] = defaultdict(list)
-    for r in rows:
-        by_strategy[r.strategy].append(r)
-    for sid in by_strategy:
-        by_strategy[sid].sort(key=lambda r: (0 if r.candidate_status == "tradable" else 1,
-                                              -(r.oos_calmar or 0.0)))
-
-    COL_HDR = (f"  {'#':>3}  {'Status':<9} "
-               f"{'IS Cal':>7} {'IS Ret':>7} {'IS DD':>6} {'IS WR':>6} {'IS Tr':>5}  "
-               f"{'OOS Cal':>7} {'OOS Ret':>8} {'OOS DD':>7} {'OOS WR':>7} {'OOS Tr':>6}  "
-               f"Trend  RVol  SL  STR RSM")
-
-    for sid, group in sorted(by_strategy.items()):
-        n_trad = sum(1 for r in group if r.candidate_status == "tradable")
-        n_watch = len(group) - n_trad
-        print(f"\n  ── {sid}  ({n_trad} tradable / {n_watch} watchlist) " + "─" * max(0, W - 35 - len(sid)))
-        print(COL_HDR)
-        print("  " + "-" * (W - 4))
-        for idx, row in enumerate(group[:5], start=1):
-            p = row.params or {}
-            trend = str(p.get("trend_filter", p.get("trend_sma_period", 0)) or "off")
-            rvol  = p.get("rvol_min", 0.0)
-            sl    = p.get("sl_atr_mult", 0.0)
-            str_v = p.get("str_max", 0)
-            rsm_v = p.get("rsm_min", 0)
-            is_cal = row.is_calmar or 0.0
-            is_ret = (row.is_annual_return or 0.0) * 100
-            is_dd  = (row.is_max_drawdown  or 0.0) * 100
-            is_wr  = (row.is_win_rate      or 0.0) * 100
-            is_tr  = row.is_trade_count or 0
-            oos_cal = row.oos_calmar or 0.0
-            oos_ret = (row.oos_annual_return or 0.0) * 100
-            oos_dd  = (row.oos_max_drawdown  or 0.0) * 100
-            oos_wr  = (row.oos_win_rate     or 0.0) * 100
-            oos_tr  = row.oos_trade_count or 0
-            status  = "TRADABLE" if row.candidate_status == "tradable" else "watchlist"
-            oos_str = (f"{oos_cal:>7.2f} {oos_ret:>+8.1f} {oos_dd:>7.1f} {oos_wr:>6.0f}% {oos_tr:>6d}"
-                       if oos_tr else f"{'—':>7} {'—':>8} {'—':>7} {'—':>7} {'—':>6}")
-            print(
-                f"  {idx:>3}  {status:<9} "
-                f"{is_cal:>7.2f} {is_ret:>+7.1f} {is_dd:>6.1f} {is_wr:>5.0f}% {is_tr:>5d}  "
-                f"{oos_str}  "
-                f"{trend:<6} {rvol:<5} {sl:<4} {str_v:>3} {rsm_v:>3}"
-            )
-            if row.candidate_status != "tradable" and row.gate_misses:
-                print(f"       miss: {', '.join(row.gate_misses)}")
-
-    print("\n" + "=" * W + "\n")
-
-
-def cmd_chart(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    """Generate interactive HTML chart for a optimise candidate and open in browser."""
-    import webbrowser
-    from pathlib import Path
-    import strategies  # noqa: F401
-    from core.registry import StrategyRegistry
-    from db.models import SessionLocal, StrategyCandidateModel
-    from validation.backtest import run_portfolio_backtest, _precompute_indicators
-    from charts.strategy_chart import generate_html
-
-    market = adapter.market_id
-    today = date.today()
-    y1_end,  y1_start = today, today - timedelta(days=365)
-    y3_start = today - timedelta(days=1095)
-    chart_start = y1_start - timedelta(days=90)  # 3-month context before OOS
-
-    # Load candidate from DB
-    chart_strategy = getattr(args, "chart_strategy", None)
-    candidate_num  = max(1, getattr(args, "candidate", 1))
-
-    db = SessionLocal()
-    try:
-        q = db.query(StrategyCandidateModel).filter_by(market=market)
-        if chart_strategy:
-            q = q.filter_by(strategy=chart_strategy)
-        all_rows = q.all()
-    finally:
-        db.close()
-
-    if not all_rows:
-        hint = f" for strategy '{chart_strategy}'" if chart_strategy else ""
-        print(f"  No candidates in DB{hint}. Run optimise first.")
-        return
-
-    # Sort same as report: tradable first, then OOS Calmar desc
-    all_rows.sort(key=lambda r: (0 if r.candidate_status == "tradable" else 1,
-                                 -(r.oos_calmar or 0.0)))
-
-    candidate_idx = min(candidate_num - 1, len(all_rows) - 1)
-    row = all_rows[candidate_idx]
-
-    strategies_map = StrategyRegistry.for_market(market)
-    if row.strategy not in strategies_map:
-        print(f"  ERROR: strategy '{row.strategy}' not found in registry.")
-        return
-    strategy = strategies_map[row.strategy]()
-
-    print(f"\n  Charting {row.strategy} #{candidate_num}/{len(all_rows)}"
-          f"  [{row.candidate_status}]")
-    print(f"  OOS period: {y1_start} \u2192 {y1_end}")
-
-    # Fetch universe + OHLCV
-    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
-    bm_close = _fetch_benchmark(adapter, y3_start, today)
-
-    precomputed: list = []
-    for idx, symbol in enumerate(universe, 1):
-        logger.info("[%d/%d] fetching %s", idx, len(universe), symbol)
-        df = adapter.ohlcv(symbol, y3_start, today)
-        df = _attach_benchmark(df, bm_close)
-        if df.empty or len(df) < 60:
-            continue
-        df.attrs = {"symbol": symbol, "market": market}
-        pdf = _precompute_indicators(df)
-        pdf.attrs = {"symbol": symbol, "market": market}
-        precomputed.append(pdf)
-
-    if not precomputed:
-        print("  No data fetched.")
-        return
-
-    # Slice data
-    oos_dfs    = _slice_dfs(precomputed, y1_start, y1_end)    # backtest on OOS only
-    chart_dfs  = _slice_dfs(precomputed, chart_start, y1_end)  # display includes context
-
-    chart_df_map = {df.attrs["symbol"]: df for df in chart_dfs}
-
-    # Run portfolio backtest on OOS to get per-symbol trades
-    oos_result = run_portfolio_backtest(oos_dfs, strategy, row.params,
-                                        initial_capital=args.capital)
-    all_trades: list[dict] = oos_result.get("trades", [])
-
-    # Group trades by symbol
-    trades_by_symbol: dict[str, list[dict]] = {}
-    for t in all_trades:
-        trades_by_symbol.setdefault(t["symbol"], []).append(t)
-
-    # Build symbol_data — all OOS symbols, trades optional
-    symbol_data: list[dict] = []
-    for df in oos_dfs:
-        sym = df.attrs["symbol"]
-        symbol_data.append({
-            "symbol": sym,
-            "df":     chart_df_map.get(sym, df),
-            "trades": trades_by_symbol.get(sym, []),
-        })
-    # Symbols with trades first, then alphabetical
-    symbol_data.sort(key=lambda x: (-len(x["trades"]), x["symbol"]))
-
-    # IS / OOS metrics from DB row
-    is_metrics = {
-        "calmar":        row.is_calmar,
-        "annual_return": row.is_annual_return,
-        "max_drawdown":  row.is_max_drawdown,
-        "trade_count":   row.is_trade_count,
-        "win_rate":      row.is_win_rate,
-    }
-    oos_metrics = {
-        "calmar":        row.oos_calmar,
-        "annual_return": row.oos_annual_return,
-        "max_drawdown":  row.oos_max_drawdown,
-        "trade_count":   row.oos_trade_count,
-        "win_rate":      row.oos_win_rate,
-    }
-
-    html = generate_html(
-        market=market,
-        strategy_id=row.strategy,
-        params=row.params,
-        is_metrics=is_metrics,
-        oos_metrics=oos_metrics,
-        y1_start=y1_start,
-        y1_end=y1_end,
-        symbol_data=symbol_data,
-    )
-
-    out_dir = Path(__file__).parent.parent / "charts" / "output"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"{market}_{row.strategy}_{today}.html"
-    out_file.write_text(html, encoding="utf-8")
-
-    traded = sum(1 for sd in symbol_data if sd["trades"])
-    total  = sum(len(sd["trades"]) for sd in symbol_data)
-    print(f"  {traded}/{len(symbol_data)} symbols traded | {total} total trade events")
-    print(f"  Chart: {out_file}")
-    webbrowser.open(out_file.as_uri())
 
 
 def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
@@ -971,13 +197,26 @@ def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         for ts, r in regime_series.items()
     }
 
+    # Save regime labels to DB so optimise-regime uses identical boundaries
+    from db.models import SessionLocal as _SL, RegimeLabelModel
+    _db = _SL()
+    try:
+        _db.query(RegimeLabelModel).filter_by(market=market).delete()
+        _db.bulk_save_objects([
+            RegimeLabelModel(market=market, date=d, regime=r)
+            for d, r in regime_date_map.items()
+        ])
+        _db.commit()
+    finally:
+        _db.close()
+
     regime_dist = regime_series.value_counts()
     total_bars  = len(regime_series)
 
-    # Fetch + precompute all symbol data
+    print(f"  Fetching {len(universe)} symbols (5yr) ...", flush=True)
     all_dfs = []
     for idx, symbol in enumerate(universe, 1):
-        logger.info("[%d/%d] fetching %s (5yr)", idx, len(universe), symbol)
+        print(f"  [{idx}/{len(universe)}] {symbol}", flush=True)
         df = adapter.ohlcv(symbol, y5_start, today)
         df = _attach_benchmark(df, bm_close)
         if df.empty or len(df) < 60:
@@ -991,13 +230,15 @@ def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         print("  No data fetched.")
         return
 
-    print(f"\n  Data ready: {len(all_dfs)} symbols. Running {len(strategies_map)} strategies × 5yr backtest... please wait.\n")
+    print(f"\n  Done — {len(all_dfs)} symbols ready. Starting {len(strategies_map)} strategy backtests...\n")
 
-    EDGE_WR = 33.3  # breakeven for 2:1 RR
+    EDGE_CALMAR = 0.5
 
     # Run all strategies first, collect tagged trades
     all_strategy_trades: dict[str, list[dict]] = {}
-    for strategy_id, strategy_cls in strategies_map.items():
+    n_strats = len(strategies_map)
+    for s_idx, (strategy_id, strategy_cls) in enumerate(strategies_map.items(), 1):
+        print(f"  [{s_idx}/{n_strats}] {strategy_id} — running 5yr backtest ...", flush=True)
         strategy = strategy_cls()
         params   = {**strategy.default_params, **_REGIME_DISCOVERY_PARAMS}
         try:
@@ -1013,10 +254,16 @@ def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             r = regime_date_map.get(t["entry_date"], "choppy")
             tagged.append({**t, "regime": r, "year": t["entry_date"].year})
         all_strategy_trades[strategy_id] = tagged
+        print(f"  [{s_idx}/{n_strats}] {strategy_id} — done  ({len(trades)} trades)", flush=True)
 
-    all_years = sorted({t["year"] for trades in all_strategy_trades.values() for t in trades})
-    YC = 11  # chars per year cell: "+22.0%/12 "
-    W  = 4 + 22 + 2 + 7 + 2 + len(all_years) * (YC + 2)
+    all_years     = sorted({t["year"] for trades in all_strategy_trades.values() for t in trades})
+    partial_years = {y5_start.year, today.year}
+    YC  = 11   # ret%/trades per year cell
+    WC  = 7    # WR col
+    CC  = 8    # Calmar col
+    DC  = 7    # DD col
+    WP  = 4 + 22 + 2 + WC + 2 + CC + 2 + DC + 2 + len(all_years) * (YC + 2)   # per-regime
+    W   = WP + 13                                                                 # summary (+Regime col)
 
     dist_str = "  |  ".join(
         f"{r}: {regime_dist.get(r, 0) / total_bars * 100:.0f}% ({regime_dist.get(r, 0)}d)"
@@ -1026,88 +273,81 @@ def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     print("\n" + "=" * W)
     print(f"  {market.upper()} REGIME DISCOVERY — {today}  |  5yr: {y5_start} → {today}")
     print(f"  Universe: {len(all_dfs)} symbols  |  Strategies: {len(strategies_map)}  |  "
-          f"SL=1.5×ATR  TP=3×ATR  (2:1 RR  edge=WR>{EDGE_WR:.0f}%)")
+          f"SL=1.5×ATR  TP=3×ATR  (2:1 RR  edge=Calmar>{EDGE_CALMAR:.0f})")
     print(f"  Benchmark: {dist_str}")
 
-    year_hdr = "  ".join(f"{y:>{YC}}" for y in all_years)
-
-    for regime in REGIMES:
-        print("\n" + "=" * W)
-        print(f"  {regime.upper()}")
-        print("=" * W)
-        print(f"  {'Strategy':<22}  {'WR':>6}  {year_hdr}")
-        print("  " + "-" * (W - 4))
-
-        for strategy_id in strategies_map:
-            trades = all_strategy_trades[strategy_id]
-            r_trades = [t for t in trades if t["regime"] == regime]
-
-            if not r_trades:
-                blanks = "  ".join(f"{'—':>{YC}}" for _ in all_years)
-                print(f"  {strategy_id:<22}  {'—':>6}  {blanks}")
-                continue
-
-            wins = sum(1 for t in r_trades if t["pnl"] > 0)
-            wr   = wins / len(r_trades) * 100
-            edge = "✓" if wr >= EDGE_WR else "✗"
-            wr_str = f"{wr:.0f}%{edge}"
-
-            year_cols = []
-            for y in all_years:
-                yr = [t for t in r_trades if t["year"] == y]
-                if not yr:
-                    year_cols.append(f"{'—':>{YC}}")
-                else:
-                    ret = sum(t["pnl"] for t in yr) / args.capital * 100
-                    n   = len(yr)
-                    cell = f"{ret:>+5.1f}%/{n}"
-                    year_cols.append(f"{cell:>{YC}}")
-
-            print(f"  {strategy_id:<22}  {wr_str:>6}  {'  '.join(year_cols)}")
-
-    # ── DEPLOYMENT SUMMARY ────────────────────────────────────────────────
-    deploy: dict[str, list[str]] = {r: [] for r in REGIMES}
-    no_edge: list[str] = []
+    # ── BUILD REGIME RESULTS ──────────────────────────────────────────────
     regime_results: list[dict] = []
 
     for strategy_id in strategies_map:
-        trades  = all_strategy_trades[strategy_id]
-        has_edge = False
+        trades = all_strategy_trades[strategy_id]
         for regime in REGIMES:
             r_trades = [t for t in trades if t["regime"] == regime]
-            wr = (sum(1 for t in r_trades if t["pnl"] > 0) / len(r_trades) * 100) if r_trades else 0.0
-            acc = wr >= EDGE_WR and len(r_trades) > 0
-            if acc:
-                deploy[regime].append(strategy_id)
-                has_edge = True
-            yearly = {}
+            yearly: dict[str, dict] = {}
             for y in all_years:
                 yr = [t for t in r_trades if t["year"] == y]
-                if yr:
-                    yearly[str(y)] = {
-                        "ret_pct": round(sum(t["pnl"] for t in yr) / args.capital * 100, 2),
-                        "trade_count": len(yr),
-                    }
+                if not yr:
+                    continue
+                yr_wins = sum(1 for t in yr if t["pnl"] > 0)
+                yearly[str(y)] = {
+                    "ret_pct":     round(sum(t["pnl"] for t in yr) / args.capital * 100, 2),
+                    "trade_count": len(yr),
+                    "wr":          round(yr_wins / len(yr) * 100, 1),
+                }
+            # aggregate WR
+            agg_wr = (sum(1 for t in r_trades if t["pnl"] > 0) / len(r_trades) * 100) if r_trades else 0.0
+            # 5yr calmar + max_dd
+            if r_trades:
+                eq, peak, max_dd_5yr = args.capital, args.capital, 0.0
+                for t in sorted(r_trades, key=lambda x: x["entry_date"]):
+                    eq += t["pnl"]
+                    if eq > peak:
+                        peak = eq
+                    if peak > 0:
+                        max_dd_5yr = max(max_dd_5yr, (peak - eq) / peak)
+                total_ret = sum(t["pnl"] for t in r_trades) / args.capital
+                n_regime_bars = max(int(regime_dist.get(regime, 1)), 1)
+                annual_ret = total_ret * (252 / n_regime_bars)
+                calmar_5yr = annual_ret / max_dd_5yr if max_dd_5yr > 0 else annual_ret
+            else:
+                max_dd_5yr, calmar_5yr = 0.0, 0.0
+            # gate: WR>33% in ≥3 full calendar years
+            acc = bool(r_trades) and calmar_5yr > EDGE_CALMAR
             regime_results.append({
-                "strategy": strategy_id,
-                "regime":   regime,
-                "wr":       round(wr, 2),
+                "strategy":    strategy_id,
+                "regime":      regime,
+                "wr":          round(agg_wr, 2),
+                "calmar":      round(calmar_5yr, 2),
+                "max_dd":      round(max_dd_5yr * 100, 1),
                 "trade_count": len(r_trades),
-                "yearly":   yearly,
-                "acceptable": acc,
+                "yearly":      yearly,
+                "acceptable":  acc,
             })
-        if not has_edge:
-            no_edge.append(strategy_id)
 
-    print("\n" + "=" * W)
-    print("  REGIME DEPLOYMENT MAP")
-    print("=" * W)
+    # ── PRINT PER-REGIME DISCOVERY TABLES ────────────────────────────────
+    year_hdr = "  ".join(f"{y:>{YC}}" for y in all_years)
+    by_regime_disc: dict[str, list[dict]] = {r: [] for r in REGIMES}
+    for row in regime_results:
+        by_regime_disc[row["regime"]].append(row)
+
     for regime in REGIMES:
-        strats = "  ".join(deploy[regime]) if deploy[regime] else "—"
-        print(f"  {regime.upper():<12} → {strats}")
-    if no_edge:
-        print(f"  {'DROP':<12} → {chr(32).join(no_edge)}  (no edge in any regime)")
-    print("=" * W + "\n")
+        print("\n" + "=" * WP)
+        print(f"  {regime.upper()}")
+        print("=" * WP)
+        print(f"  {'Strategy':<22}  {'WR':>{WC}}  {'Calmar':>{CC}}  {'DD':>{DC}}  {year_hdr}")
+        print("  " + "-" * (WP - 4))
+        for row in by_regime_disc[regime]:
+            if not row["yearly"]:
+                blanks = "  ".join(f"{'—':>{YC}}" for _ in all_years)
+                print(f"  {row['strategy']:<22}  {'—':>{WC}}  {'—':>{CC}}  {'—':>{DC}}  {blanks}")
+                continue
+            wr_str  = f"{row['wr']:.0f}%{'✓' if row['acceptable'] else '✗'}"
+            cal_str = f"{row['calmar']:.2f}"
+            dd_str  = f"{row['max_dd']:.1f}%"
+            year_cols = [_fmt_regime_cell(row["yearly"].get(str(y)), YC) for y in all_years]
+            print(f"  {row['strategy']:<22}  {wr_str:>{WC}}  {cal_str:>{CC}}  {dd_str:>{DC}}  {'  '.join(year_cols)}")
+
+    _print_regime_summary(regime_results, all_years, W, YC)
 
     # ── SAVE TO DB ────────────────────────────────────────────────────────
     from db.models import SessionLocal, RegimeMapModel
@@ -1120,6 +360,8 @@ def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
                 strategy    = row["strategy"],
                 regime      = row["regime"],
                 wr          = row["wr"],
+                calmar      = row["calmar"],
+                max_dd      = row["max_dd"],
                 trade_count = row["trade_count"],
                 yearly      = row["yearly"],
                 acceptable  = row["acceptable"],
@@ -1128,6 +370,105 @@ def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         logger.info("saved %d regime-map rows for %s", len(regime_results), market)
     finally:
         db.close()
+
+    _export_regime_markdown(regime_results, market, today, len(all_dfs), len(strategies_map), all_years, EDGE_CALMAR)
+
+
+def _export_regime_markdown(
+    regime_results: list[dict],
+    market: str,
+    as_of,
+    n_symbols: int,
+    n_strategies: int,
+    all_years: list[int],
+    edge_calmar: float = 0.5,
+) -> str:
+    from pathlib import Path
+    from datetime import datetime
+    from core.regime import REGIMES
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    latest_path = Path("reports") / f"{market}_regime_latest.md"
+    history_path = Path("reports") / "history" / f"{timestamp}_{market}_regime.md"
+
+    passing   = [r for r in regime_results if r["acceptable"]]
+    near_miss = [r for r in regime_results if not r["acceptable"] and (r.get("calmar") or 0) >= 0.5]
+
+    lines = [
+        f"# {market.upper()} Regime Discovery",
+        "",
+        f"- As of: `{as_of}`",
+        f"- Market: `{market}`",
+        f"- Universe: `{n_symbols} symbols` | `5yr`",
+        f"- Strategies tested: `{n_strategies}`",
+        f"- Gate: `calmar > {edge_calmar}`",
+        f"- Counts: `PASS={len(passing)}` `FAIL={len(regime_results) - len(passing)}`",
+        "",
+    ]
+
+    for regime in REGIMES:
+        regime_rows = [r for r in regime_results if r["regime"] == regime]
+        lines.extend([f"## {regime.upper()}", ""])
+        year_cols = " | ".join(str(y) for y in all_years)
+        lines.append(f"| Strategy | WR | Calmar | DD | Trades | {year_cols} | Status |")
+        lines.append("|---|---|---|---|---|" + "---|" * len(all_years) + "---|")
+        for row in sorted(regime_rows, key=lambda r: -(r.get("calmar") or 0)):
+            wr_s  = f"{row['wr']:.0f}%"       if row.get("wr")      is not None else "—"
+            cal_s = f"{row['calmar']:.2f}"     if row.get("calmar")  is not None else "—"
+            dd_s  = f"{row['max_dd']:.1f}%"   if row.get("max_dd")  is not None else "—"
+            tr_s  = str(row.get("trade_count", 0))
+            status = "✓ PASS" if row["acceptable"] else "✗"
+            yearly = row.get("yearly") or {}
+            year_cells = " | ".join(
+                f"{d['ret_pct']:+.1f}%/{d['trade_count']}" if (d := yearly.get(str(y))) else "—"
+                for y in all_years
+            )
+            lines.append(f"| {row['strategy']} | {wr_s} | {cal_s} | {dd_s} | {tr_s} | {year_cells} | {status} |")
+        lines.append("")
+
+    lines.extend(["## PASS — Pairs to Optimise", ""])
+    if passing:
+        for r in sorted(passing, key=lambda r: -(r.get("calmar") or 0)):
+            lines.append(
+                f"- `{r['strategy']} | {r['regime']}` — "
+                f"calmar=`{r['calmar']:.2f}` wr=`{r['wr']:.0f}%` "
+                f"dd=`{r['max_dd']:.1f}%` trades=`{r['trade_count']}`"
+            )
+    else:
+        lines.append("_None — lower calmar gate or review strategies._")
+    lines.append("")
+
+    lines.extend(["## Near Miss (calmar 0.5–1.0)", ""])
+    if near_miss:
+        for r in sorted(near_miss, key=lambda r: -(r.get("calmar") or 0)):
+            lines.append(
+                f"- `{r['strategy']} | {r['regime']}` — "
+                f"calmar=`{r['calmar']:.2f}` wr=`{r['wr']:.0f}%` dd=`{r['max_dd']:.1f}%`"
+            )
+    else:
+        lines.append("_None_")
+    lines.append("")
+
+    lines.extend([
+        "## AI Suggestions",
+        "",
+        "<!-- AI reads this file and writes specific next-run suggestions here -->",
+        "",
+        "## Next Loop",
+        "",
+        f"- Run `python run.py {market} regime` again after strategy/code changes.",
+        f"- Run `python run.py {market} optimise-regime` on PASS pairs to tune rvol + TP.",
+        "- Change one thing at a time.",
+        "",
+    ])
+
+    content = "\n".join(lines)
+    for path in (latest_path, history_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    print(f"  Markdown: {latest_path}")
+    return str(latest_path)
 
 
 def cmd_regime_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
@@ -1148,10 +489,13 @@ def cmd_regime_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         return
 
     last_eval = rows[0].evaluated_at
-    all_years = sorted({y for r in rows for y in (r.yearly or {}).keys()})
-    EDGE_WR   = 33.3
+    all_years = sorted({int(y) for r in rows for y in (r.yearly or {}).keys()})
     YC        = 11
-    W         = 4 + 22 + 2 + 7 + 2 + len(all_years) * (YC + 2)
+    WC        = 7
+    CC        = 8
+    DC        = 7
+    WP        = 4 + 22 + 2 + WC + 2 + CC + 2 + DC + 2 + len(all_years) * (YC + 2)
+    W         = WP + 13
 
     print("\n" + "=" * W)
     print(f"  {market.upper()} REGIME REPORT  |  Last evaluated: {last_eval}")
@@ -1165,97 +509,296 @@ def cmd_regime_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
 
     for regime in REGIMES:
         regime_rows = by_regime.get(regime, [])
-        print("\n" + "=" * W)
+        print("\n" + "=" * WP)
         print(f"  {regime.upper()}")
-        print("=" * W)
-        print(f"  {'Strategy':<22}  {'WR':>6}  {year_hdr}")
-        print("  " + "-" * (W - 4))
+        print("=" * WP)
+        print(f"  {'Strategy':<22}  {'WR':>{WC}}  {'Calmar':>{CC}}  {'DD':>{DC}}  {year_hdr}")
+        print("  " + "-" * (WP - 4))
         for row in regime_rows:
-            edge   = "✓" if row.acceptable else "✗"
-            wr_str = f"{row.wr:.0f}%{edge}"
-            yearly = row.yearly or {}
-            year_cols = []
-            for y in all_years:
-                d = yearly.get(str(y))
-                if not d:
-                    year_cols.append(f"{'—':>{YC}}")
-                else:
-                    cell = f"{d['ret_pct']:>+5.1f}%/{d['trade_count']}"
-                    year_cols.append(f"{cell:>{YC}}")
-            print(f"  {row.strategy:<22}  {wr_str:>6}  {'  '.join(year_cols)}")
+            edge    = "✓" if row.acceptable else "✗"
+            wr_str  = f"{row.wr:.0f}%{edge}" if row.wr is not None else "—"
+            cal_str = f"{row.calmar:.2f}" if row.calmar is not None else "—"
+            dd_str  = f"{row.max_dd:.1f}%" if row.max_dd is not None else "—"
+            yearly  = row.yearly or {}
+            year_cols = [_fmt_regime_cell(yearly.get(str(y)), YC) for y in all_years]
+            print(f"  {row.strategy:<22}  {wr_str:>{WC}}  {cal_str:>{CC}}  {dd_str:>{DC}}  {'  '.join(year_cols)}")
 
-    # Deployment map
-    deploy: dict[str, list[str]] = {r: [] for r in REGIMES}
-    no_edge: set[str] = set()
-    all_strats = {r.strategy for r in rows}
-    for r in rows:
-        if r.acceptable:
-            deploy[r.regime].append(r.strategy)
-    for s in all_strats:
-        if not any(s in deploy[r] for r in REGIMES):
-            no_edge.add(s)
+    regime_results = [
+        {
+            "strategy":    r.strategy,
+            "regime":      r.regime,
+            "wr":          r.wr or 0.0,
+            "calmar":      r.calmar,
+            "max_dd":      r.max_dd,
+            "trade_count": r.trade_count or 0,
+            "yearly":      r.yearly or {},
+            "acceptable":  r.acceptable,
+        }
+        for r in rows
+    ]
+    _print_regime_summary(regime_results, all_years, W, YC)
 
-    print("\n" + "=" * W)
-    print("  REGIME DEPLOYMENT MAP")
-    print("=" * W)
-    for regime in REGIMES:
-        strats = "  ".join(sorted(set(deploy[regime]))) if deploy[regime] else "—"
-        print(f"  {regime.upper():<12} → {strats}")
-    if no_edge:
-        print(f"  {'DROP':<12} → {' '.join(sorted(no_edge))}")
-    print("=" * W + "\n")
+    # ── ACTIVE PARAMS (from optimise-regime) ──────────────────────────────
+    from db.models import RegimeOptimiseModel
+    opt_db = SessionLocal()
+    try:
+        opt_rows = opt_db.query(RegimeOptimiseModel).filter_by(market=market).all()
+    finally:
+        opt_db.close()
+
+    if opt_rows:
+        print("\n" + "=" * W)
+        print("  ACTIVE PARAMS  (best combo from optimise-regime)")
+        print("=" * W)
+        for opt in sorted(opt_rows, key=lambda r: r.strategy):
+            p = opt.params or {}
+            tp1_pct = int(p.get("tp1_partial_pct", 1.0) * 100)
+            tp2_mult = p.get("tp2_atr_mult", 999.0)
+            tp2_pct  = int(p.get("tp2_partial_pct", 0.0) * 100)
+            ema      = p.get("ema_exit_period", 0)
+            sl_mult  = p.get("sl_atr_mult", 1.5)
+            tp1_mult = p.get("tp1_atr_mult", 3.0)
+            rvol     = p.get("rvol_min", 0.0)
+            combo    = opt.best_combo or "—"
+
+            tp_desc = f"TP1={tp1_mult:.1f}×ATR {tp1_pct}%"
+            if tp2_mult < 900:
+                tp_desc += f"  TP2={tp2_mult:.1f}×ATR {tp2_pct}%"
+            if ema:
+                tp_desc += f"  EMA{ema}-exit"
+            rvol_desc = f"  rvol≥{rvol:.1f}" if rvol > 0 else "  no-rvol-filter"
+            print(f"  {opt.strategy:<22}  {opt.regime:<12}  combo={combo:<28}  SL={sl_mult:.1f}×ATR  {tp_desc}{rvol_desc}")
+        print("=" * W)
+    else:
+        print("\n  (no optimise-regime results — run optimise-regime first)")
 
 
-def cmd_regime_optimise(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    """Phase 3: regime-aware grid search using saved regime map. (coming soon)"""
-    from db.models import SessionLocal, RegimeMapModel
-    from core.regime import REGIMES
+def cmd_optimise_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Step 2: test TP exit combos on PASS regime pairs, find best exit structure."""
+    import time
+    import strategies  # noqa: F401
+    from core.registry import StrategyRegistry
+    from core.regime import label_regime, REGIMES
+    from validation.backtest import run_portfolio_backtest, _precompute_indicators
+    from db.models import SessionLocal, RegimeMapModel, RegimeOptimiseModel
 
-    market = adapter.market_id
+    market   = adapter.market_id
+    today    = date.today()
+    y5_start = today - timedelta(days=1825)
+
     db = SessionLocal()
     try:
-        rows = db.query(RegimeMapModel).filter_by(market=market, acceptable=True).all()
+        regime_rows = db.query(RegimeMapModel).filter(
+            RegimeMapModel.market  == market,
+            RegimeMapModel.calmar  >= _OPT_REGIME_MIN_CALMAR,
+        ).all()
     finally:
         db.close()
 
-    if not rows:
-        print("  No acceptable regime mappings found. Run regime first.")
+    if not regime_rows:
+        print(f"  No pairs with calmar >= {_OPT_REGIME_MIN_CALMAR}. Run regime first.")
         return
 
-    print(f"\n  {market.upper()} REGIME OPTIMISE — coming soon.")
-    print(f"  Will optimise {len(rows)} strategy×regime pairs using regime-filtered IS data.")
-    for regime in REGIMES:
-        strats = [r.strategy for r in rows if r.regime == regime]
-        if strats:
-            print(f"  {regime.upper():<12} → {', '.join(strats)}")
-    print()
+    pairs = [(r.strategy, r.regime, float(r.calmar or 0)) for r in regime_rows]
+    strategies_map = StrategyRegistry.for_market(market)
 
+    # Load regime labels from DB (saved by cmd_regime) to ensure identical boundaries
+    from db.models import RegimeLabelModel
+    _db2 = SessionLocal()
+    try:
+        label_rows = _db2.query(RegimeLabelModel).filter_by(market=market).all()
+    finally:
+        _db2.close()
 
-def make_parser(market_id: str) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=f"{market_id.upper()} market pipeline")
-    parser.add_argument("command",
-                        choices=["scan", "diagnose", "paper", "live", "report", "optimise", "chart",
-                                 "regime", "regime-report", "regime-optimise"])
-    parser.add_argument("--capital", type=float, default=1_000_000)
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--symbols", type=int,
-                        help="Limit to top N symbols after turnover filtering (default: all)")
-    parser.add_argument("--candidate", type=int, default=1,
-                        help="Which DB candidate to chart (1-based, default: 1 = most recent)")
-    return parser
+    if label_rows:
+        regime_date_map: dict = {row.date: row.regime for row in label_rows}
+        regime_bars: dict[str, int] = {}
+        for row in label_rows:
+            regime_bars[row.regime] = regime_bars.get(row.regime, 0) + 1
+        bm_close = None  # not needed for label assignment
+    else:
+        # fallback: recompute (first run before regime labels saved)
+        bm_close = _fetch_benchmark(adapter, y5_start, today)
+        if bm_close is None:
+            print("  ERROR: no benchmark data and no saved regime labels. Run regime first.")
+            return
+        regime_series   = label_regime(bm_close["_bm_close"])
+        regime_date_map = {
+            (ts.date() if hasattr(ts, "date") else ts): r
+            for ts, r in regime_series.items()
+        }
+        regime_bars = {}
+        for ts, r in regime_series.items():
+            regime_bars[r] = regime_bars.get(r, 0) + 1
+
+    # Still need bm_close to attach benchmark to OHLCV for indicator precompute
+    if bm_close is None:
+        bm_close = _fetch_benchmark(adapter, y5_start, today)
+        if bm_close is None:
+            print("  ERROR: no benchmark data.")
+            return
+
+    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
+    print(f"\n  Fetching {len(universe)} symbols (5yr)...", flush=True)
+    all_dfs = []
+    for idx, symbol in enumerate(universe, 1):
+        print(f"  [{idx}/{len(universe)}] {symbol}", flush=True)
+        df = adapter.ohlcv(symbol, y5_start, today)
+        df = _attach_benchmark(df, bm_close)
+        if df.empty or len(df) < 60:
+            continue
+        df.attrs = {"symbol": symbol, "market": market}
+        pdf = _precompute_indicators(df)
+        pdf.attrs = {"symbol": symbol, "market": market}
+        all_dfs.append(pdf)
+
+    if not all_dfs:
+        print("  No data fetched.")
+        return
+
+    all_years = sorted({
+        str(d.year if hasattr(d, "year") else int(str(d)[:4]))
+        for df in all_dfs for d in df.index
+    })
+    YW = 8  # width per year column
+
+    W = 116 + YW * len(all_years)
+    print(f"\n{'='*W}")
+    print(f"  {market.upper()} OPTIMISE REGIME — {today}")
+    print(f"  {len(pairs)} pairs (calmar >= {_OPT_REGIME_MIN_CALMAR}) x {len(_OPT_REGIME_TP_COMBOS)} TP combos | SL fixed 1.5×ATR")
+    print(f"{'='*W}")
+
+    results: list[dict] = []
+    n_pairs = len(pairs)
+    global_t0 = time.time()
+
+    for pair_idx, (strategy_id, target_regime, baseline_calmar) in enumerate(pairs, 1):
+        strategy_cls = strategies_map.get(strategy_id)
+        if strategy_cls is None:
+            logger.warning("strategy %s not in registry", strategy_id)
+            continue
+
+        n_bars = max(regime_bars.get(target_regime, 1), 1)
+
+        elapsed_global = time.time() - global_t0
+        if pair_idx > 1:
+            avg_pair = elapsed_global / (pair_idx - 1)
+            eta_pairs = avg_pair * (n_pairs - pair_idx + 1)
+            eta_global = f"{int(eta_pairs//60)}m{int(eta_pairs%60):02d}s" if eta_pairs >= 60 else f"{int(eta_pairs)}s"
+            global_timing = f"  [{pair_idx}/{n_pairs} pairs | total elapsed {elapsed_global:.0f}s | eta {eta_global}]"
+        else:
+            global_timing = f"  [{pair_idx}/{n_pairs} pairs | starting]"
+        yr_hdr = "  ".join(f"{y:>{YW}}" for y in all_years)
+        print(f"\n  {strategy_id} | {target_regime}  (baseline calmar={baseline_calmar:.2f}){global_timing}", flush=True)
+        print(f"  {'Combo':<32} {'Calmar':>8} {'Ret%ann':>8} {'DD':>7} {'Trades':>7} {'WR':>6}  {yr_hdr}")
+        print(f"  {'-'*(W-4)}")
+
+        combo_results: list[dict] = []
+        best: dict | None = None
+        n_combos = len(_OPT_REGIME_TP_COMBOS)
+        pair_t0 = time.time()
+
+        for combo_idx, combo in enumerate(_OPT_REGIME_TP_COMBOS, 1):
+            label  = combo["_label"]
+            params = {
+                **strategy_cls().default_params,
+                **_OPT_REGIME_BASE,
+                **{k: v for k, v in combo.items() if not k.startswith("_")},
+            }
+            try:
+                result = run_portfolio_backtest(all_dfs, strategy_cls(), params,
+                                               initial_capital=args.capital)
+                trades = [
+                    t for t in result.get("trades", [])
+                    if regime_date_map.get(t["entry_date"], "choppy") == target_regime
+                ]
+                metrics = _p3_metrics_from_trades(
+                    trades, target_regime, regime_date_map, args.capital, n_bars
+                )
+            except Exception as exc:
+                print(f"  {label:<32} ERROR: {exc}")
+                continue
+
+            metrics["params"]  = params
+            metrics["_label"]  = label
+            cal = float(metrics.get("calmar", 0) or 0)
+            ret = float(metrics.get("annual_return", 0) or 0) * 100
+            dd  = float(metrics.get("max_drawdown", 0) or 0) * 100
+            tr  = int(metrics.get("trade_count", 0) or 0)
+            wr  = float(metrics.get("win_rate", 0) or 0) * 100
+            elapsed = time.time() - pair_t0
+            avg_per = elapsed / combo_idx
+            eta_secs = avg_per * (n_combos - combo_idx)
+            eta_str = f"{int(eta_secs//60)}m{int(eta_secs%60):02d}s" if eta_secs >= 60 else f"{int(eta_secs)}s"
+            timing = f"[{combo_idx}/{n_combos} +{elapsed:.0f}s eta {eta_str}]"
+            yearly = metrics.get("yearly", {})
+            yr_cols = "  ".join(
+                f"{yearly[y]:>+{YW}.1f}%" if y in yearly else f"{'—':>{YW}}"
+                for y in all_years
+            )
+            best_marker = " *" if best is None or cal > float(best.get("calmar", 0) or 0) else "  "
+            print(f"  {best_marker}{label:<30} {cal:>8.2f} {ret:>+8.1f}% {dd:>6.1f}% {tr:>7d} {wr:>5.0f}%  {yr_cols}  {timing}", flush=True)
+            combo_results.append(metrics)
+            if best is None or cal > float(best.get("calmar", 0) or 0):
+                best = metrics
+
+        if best is None:
+            continue
+
+        results.append({
+            "strategy":        strategy_id,
+            "regime":          target_regime,
+            "baseline_calmar": baseline_calmar,
+            "best_label":      best["_label"],
+            "best_calmar":     float(best.get("calmar", 0) or 0),
+            "best_return":     float(best.get("annual_return", 0) or 0),
+            "best_dd":         float(best.get("max_drawdown", 0) or 0),
+            "best_trades":     int(best.get("trade_count", 0) or 0),
+            "best_wr":         float(best.get("win_rate", 0) or 0),
+            "params":          best["params"],
+            "all_combos":      combo_results,
+        })
+        print(f"  → Best: {best['_label']} (calmar={float(best.get('calmar',0)):.2f})")
+
+    # Save best params to DB
+    db = SessionLocal()
+    try:
+        db.query(RegimeOptimiseModel).filter_by(market=market).delete()
+        for r in results:
+            db.add(RegimeOptimiseModel(
+                market=market,
+                strategy=r["strategy"],
+                regime=r["regime"],
+                params=r["params"],
+                best_combo=r["best_label"],
+                oos_pass=r["best_calmar"] >= 0.5,
+            ))
+        db.commit()
+        logger.info("saved %d optimise-regime results for %s", len(results), market)
+    finally:
+        db.close()
+
+    # Summary table
+    print(f"\n{'='*W}")
+    print(f"  SUMMARY")
+    print(f"  {'Strategy':<22} {'Regime':<12} {'Baseline':>9} {'Best Cal':>9} {'Improved':>9}  Best Combo")
+    print(f"  {'-'*(W-4)}")
+    for r in sorted(results, key=lambda x: -x["best_calmar"]):
+        delta = r["best_calmar"] - r["baseline_calmar"]
+        print(f"  {r['strategy']:<22} {r['regime']:<12} {r['baseline_calmar']:>9.2f} "
+              f"{r['best_calmar']:>9.2f} {delta:>+9.2f}  {r['best_label']}")
+    print(f"{'='*W}\n")
+
+    _export_optimise_regime_markdown(results, market, today)
 
 
 def run(adapter: MarketAdapter, command: str, args: argparse.Namespace) -> None:
     dispatch = {
-        "scan":           lambda: cmd_scan(adapter, args),
-        "diagnose":       lambda: cmd_diagnose(adapter, args),
-        "paper":          lambda: cmd_paper(adapter, args),
-        "live":           lambda: cmd_scan(adapter, args),
-        "report":         lambda: cmd_report(adapter, args),
-        "optimise":       lambda: cmd_optimise(adapter, args),
-        "chart":          lambda: cmd_chart(adapter, args),
-        "regime":         lambda: cmd_regime(adapter, args),
-        "regime-report":  lambda: cmd_regime_report(adapter, args),
-        "regime-optimise": lambda: cmd_regime_optimise(adapter, args),
+        "regime":           lambda: cmd_regime(adapter, args),
+        "regime-report":    lambda: cmd_regime_report(adapter, args),
+        "optimise-regime":  lambda: cmd_optimise_regime(adapter, args),
     }
-    dispatch.get(command, lambda: cmd_scan(adapter, args))()
+    if command in dispatch:
+        dispatch[command]()
+    else:
+        print(f"  Unknown command: {command}. Available: {list(dispatch)}")
