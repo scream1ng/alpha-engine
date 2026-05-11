@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpha Engine</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+/* ── RESET ─────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:       #ffffff;
+  --bg2:      #f6f8fa;
+  --bg3:      #eaeef2;
+  --border:   #d0d7de;
+  --text:     #1f2328;
+  --text2:    #656d76;
+  --text3:    #8c959f;
+  --accent:   #0969da;
+  --green:    #1a7f37;
+  --red:      #cf222e;
+  --yellow:   #9a6700;
+  --up-bg:#dafbe1;  --up-bdr:#82cfaa;  --up-fg:#1a7f37;
+  --ch-bg:#fff8c5;  --ch-bdr:#d4a72c;  --ch-fg:#9a6700;
+  --dn-bg:#ffebe9;  --dn-bdr:#ffb8b0;  --dn-fg:#cf222e;
+}
+body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── NAV ──────────────────────────────────────────── */
+#nav{border-bottom:1px solid var(--border);background:var(--bg);height:48px;flex-shrink:0}
+#nav-inner{max-width:1200px;margin:0 auto;padding:0 20px;height:48px;display:flex;align-items:center}
+#nav-logo{font-size:13px;font-weight:700;color:var(--text);letter-spacing:.5px;user-select:none;flex-shrink:0;display:flex;align-items:center;gap:6px}
+#nav-logo .alpha-sym{font-size:16px;color:var(--accent);font-weight:900;letter-spacing:-1px}
+#nav-tabs{flex:1;display:flex;justify-content:center;align-items:center}
+.nav-tab{padding:0 16px;height:48px;display:flex;align-items:center;font-size:13px;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;text-decoration:none;transition:color .15s;white-space:nowrap}
+.nav-tab:hover{color:var(--text)}
+.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.nav-tab.dim{color:var(--text3);cursor:default;pointer-events:none}
+#nav-right{flex-shrink:0;display:flex;align-items:center;gap:12px;font-size:12px;color:var(--text3)}
+.regime-badge{padding:3px 10px;border-radius:12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+.regime-badge.uptrend  {background:var(--up-bg);color:var(--up-fg);border:1px solid var(--up-bdr)}
+.regime-badge.choppy   {background:var(--ch-bg);color:var(--ch-fg);border:1px solid var(--ch-bdr)}
+.regime-badge.downtrend{background:var(--dn-bg);color:var(--dn-fg);border:1px solid var(--dn-bdr)}
+
+/* ── PAGE ─────────────────────────────────────────── */
+#page{flex:1;overflow-y:auto;min-height:0}
+#page.chart-mode{overflow:hidden;display:flex;flex-direction:column}
+
+/* ── OVERVIEW ─────────────────────────────────────── */
+.ov-bar{border-bottom:1px solid var(--border);background:var(--bg2)}
+.ov-bar h2{font-size:14px;font-weight:600;width:100%;text-align:center}
+.ov-bar .sub{font-size:12px;color:var(--text2)}
+.ov-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:16px 20px;align-items:start;max-width:1200px;margin:0 auto;width:100%}
+.ov-bar>.ov-inner{max-width:1200px;margin:0 auto;width:100%;padding:12px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.regime-col{background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.regime-col.active-col{box-shadow:0 0 0 2px var(--accent)}
+.rcol-hdr{padding:10px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)}
+.rcol-hdr.uptrend  {background:var(--up-bg)}
+.rcol-hdr.choppy   {background:var(--ch-bg)}
+.rcol-hdr.downtrend{background:var(--dn-bg)}
+.rcol-title{font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
+.rcol-title.uptrend  {color:var(--up-fg)}
+.rcol-title.choppy   {color:var(--ch-fg)}
+.rcol-title.downtrend{color:var(--dn-fg)}
+.active-mark{font-size:9px;padding:2px 6px;background:var(--accent);color:#fff;border-radius:8px;font-weight:700;letter-spacing:.3px}
+.rcol-ct{margin-left:auto;font-size:11px;color:var(--text2)}
+.rcol-body{padding:8px;display:flex;flex-direction:column;gap:5px}
+.strat-card{padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg)}
+.strat-card.clickable{cursor:pointer;transition:box-shadow .1s,background .1s}
+.strat-card.clickable:hover{background:var(--bg2);box-shadow:0 2px 8px rgba(9,105,218,.15);border-color:#0969da66}
+.strat-card.pass{border-left:3px solid var(--green)}
+.strat-card.fail{border-left:3px solid var(--text3);opacity:.45}
+.sc-name{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.badge{font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+.badge.pass{background:#dafbe1;color:var(--green);border:1px solid #82cfaa}
+.badge.fail{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.sc-metrics{display:flex;gap:14px;flex-wrap:wrap}
+.sc-m .sc-ml{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px}
+.sc-m .sc-mv{font-family:monospace;font-weight:600;font-size:13px}
+.sc-mv.pos{color:var(--green)}.sc-mv.neg{color:var(--red)}.sc-mv.neu{color:var(--text)}
+.no-edge{padding:16px;text-align:center;font-size:12px;color:var(--text3);font-style:italic}
+
+/* ── SHARED HDR ───────────────────────────────────── */
+.pg-hdr{border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;position:sticky;top:0;z-index:2}
+.pg-hdr-inner{max-width:1200px;margin:0 auto;width:100%;padding:10px 20px;display:flex;align-items:center;position:relative}
+#chart-page .pg-hdr{display:flex;align-items:center;padding:8px 14px;position:relative}
+.back-btn{font-size:12px;font-weight:500;color:var(--text2);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);transition:all .12s;flex-shrink:0}
+.back-btn:hover{color:var(--text);background:var(--bg3);border-color:var(--text3)}
+.pg-title{font-size:15px;font-weight:600;white-space:nowrap}
+.pg-hdr-center{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.pill.uptrend  {background:var(--up-bg);color:var(--up-fg);border:1px solid var(--up-bdr)}
+.pill.choppy   {background:var(--ch-bg);color:var(--ch-fg);border:1px solid var(--ch-bdr)}
+.pill.downtrend{background:var(--dn-bg);color:var(--dn-fg);border:1px solid var(--dn-bdr)}
+
+/* ── STRATEGY DETAIL ──────────────────────────────── */
+.pg-body{padding:16px 20px 32px;display:flex;flex-direction:column;gap:12px;max-width:1200px;margin:0 auto;width:100%}
+.card{background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.card-hdr{padding:8px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2);background:var(--bg2)}
+.card-body{padding:14px}
+/* metrics */
+.met-row{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px}
+.m-item{display:flex;flex-direction:column;gap:1px}
+.m-lbl{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
+.m-val{font-size:22px;font-weight:700;font-family:monospace}
+.m-val.pos{color:var(--green)}.m-val.neg{color:var(--red)}.m-val.neu{color:var(--text)}
+.m-note{font-size:10px;color:var(--text3)}
+.combo-tag{font-size:10px;color:var(--text2);font-family:monospace;background:var(--bg2);padding:3px 8px;border-radius:4px;border:1px solid var(--border);display:inline-block;word-break:break-all;margin-top:6px}
+/* param section */
+.param-section{margin-bottom:14px}
+.param-section:last-child{margin-bottom:0}
+.param-sec-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text2);margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+.param-grid{display:flex;flex-direction:column;gap:0}
+.param-row{display:flex;align-items:baseline;gap:0;padding:5px 0;border-bottom:1px solid var(--border)}
+.param-row:last-child{border-bottom:none;padding-bottom:0}
+.pk{font-size:11px;font-weight:600;min-width:140px;flex-shrink:0;font-family:monospace;color:var(--text)}
+.pv{font-size:11px;font-family:monospace;color:var(--accent);font-weight:600;min-width:90px;flex-shrink:0}
+.pd{font-size:11px;color:var(--text2);flex:1}
+/* year bars */
+.yr-bars{display:flex;flex-direction:column;gap:6px}
+.yr-row{display:flex;align-items:center;gap:8px}
+.yr-lbl{font-size:11px;color:var(--text2);width:38px;flex-shrink:0;font-family:monospace}
+.yr-wrap{flex:1;background:var(--bg3);border-radius:2px;height:14px;overflow:hidden}
+.yr-bar.pos{height:100%;background:#b7e5c6;border-radius:2px}
+.yr-bar.neg{height:100%;background:#ffc1bd;border-radius:2px}
+.yr-val{font-size:11px;font-family:monospace;font-weight:600;width:56px;text-align:right;flex-shrink:0}
+.yr-val.pos{color:var(--green)}.yr-val.neg{color:var(--red)}
+.yr-tc{font-size:10px;color:var(--text3);width:56px;flex-shrink:0}
+/* year accordion */
+.yr-accord{border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:6px}
+.yr-accord:last-child{margin-bottom:0}
+.yr-head{padding:9px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;background:var(--bg2);user-select:none;transition:background .1s}
+.yr-head:hover{background:var(--bg3)}
+.yr-head .yr-yr{font-size:14px;font-weight:700;min-width:46px}
+.yr-head .yr-meta{font-size:11px;color:var(--text2);flex:1}
+.yr-head .yr-pnl{font-size:12px;font-family:monospace;font-weight:700}
+.yr-head .yr-arr{font-size:10px;color:var(--text3);margin-left:6px;transition:transform .2s;display:inline-block}
+.yr-head.open .yr-arr{transform:rotate(180deg)}
+.yr-body{display:none}
+.yr-body.open{display:block;max-height:600px;overflow-y:auto}
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);border-bottom:1px solid var(--border);white-space:nowrap;background:var(--bg2)}
+td{padding:6px 10px;border-bottom:1px solid #d0d7de44;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg2)}
+.sym-link{color:var(--accent);cursor:pointer;font-weight:600;text-decoration:none}
+.sym-link:hover{text-decoration:underline}
+.pos{color:var(--green)}.neg{color:var(--red)}
+
+/* ── PERF TABLE ──────────────────────────────────── */
+.perf-table{font-size:13px;width:100%;border-collapse:collapse}
+.perf-table th{padding:7px 14px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);border-bottom:2px solid var(--border);white-space:nowrap;background:var(--bg2)}
+.perf-table th.yr-th{text-align:right}
+.perf-table td{padding:9px 14px;border-bottom:1px solid #d0d7de33;white-space:nowrap;vertical-align:middle}
+.perf-table tbody tr{cursor:pointer}
+.perf-table tbody tr:hover td{background:var(--bg3)}
+.perf-table .tally-row td{background:var(--bg2);border-top:2px solid var(--border);border-bottom:none;font-weight:600}
+.perf-table .tally-row:hover td{background:var(--bg2)}
+.perf-table .pt-name{font-weight:600;font-size:13px}
+.perf-table .mono{font-family:monospace;font-weight:600}
+.perf-table .yr-cell{font-family:monospace;font-weight:600;text-align:right}
+.perf-table .yr-cell.pos{color:var(--green)}.perf-table .yr-cell.neg{color:var(--red)}.perf-table .yr-cell.neu{color:var(--text3)}
+
+/* ── CHART PAGE ───────────────────────────────────── */
+#chart-page{display:flex;flex-direction:column;height:calc(100dvh - 48px);overflow:hidden}
+#chart-stats{padding:6px 14px;border-bottom:1px solid var(--border);background:var(--bg2);display:flex;gap:14px;flex-wrap:wrap;flex-shrink:0}
+.cstat{font-size:12px;display:flex;align-items:center;gap:5px}
+.cstat .cl{color:var(--text3)}
+#chart-legend{display:flex;gap:10px;padding:4px 12px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2)}
+.leg-line{width:14px;height:2px;border-radius:1px;flex-shrink:0}
+#chart-wrap{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+#lw-main{flex:1;min-height:0}
+#lw-volume{height:56px;flex-shrink:0;border-top:1px solid var(--border)}
+#lw-rsi{height:72px;flex-shrink:0;border-top:1px solid var(--border)}
+#trade-tbl{flex-shrink:0;height:200px;overflow-y:auto;border-top:2px solid var(--border)}
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <div id="nav-inner">
+    <div id="nav-logo"><span class="alpha-sym">α</span>ALPHA ENGINE</div>
+    <div id="nav-tabs">
+      <a class="nav-tab" href="#" id="tab-overview">Overview</a>
+      <span class="nav-tab dim">Paper Trade</span>
+      <span class="nav-tab dim">Signals</span>
+    </div>
+    <div id="nav-right">
+      <span id="nav-regime" class="regime-badge">—</span>
+      <span id="nav-mkt" style="font-weight:600;color:var(--text2)">—</span>
+      <span id="nav-date">—</span>
+    </div>
+  </div>
+</nav>
+
+<div id="page"><div style="padding:40px;text-align:center;color:var(--text3)">Loading…</div></div>
+
+<script>
+const DATA_URL = './chart_data.json'; // swap to Railway API when live
+let D = null, _charts = [];
+
+async function loadData() {
+  const r = await fetch(DATA_URL);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  D = await r.json();
+  const reg = (D.current_regime || '').toLowerCase();
+  const badge = document.getElementById('nav-regime');
+  badge.textContent = D.current_regime || '—';
+  badge.className = 'regime-badge ' + reg;
+  document.getElementById('nav-mkt').textContent  = D.market || '—';
+  document.getElementById('nav-date').textContent = D.generated || '—';
+  route();
+}
+
+function route() {
+  if (!D) return;
+  destroyCharts();
+  const pg = document.getElementById('page');
+  const hash  = location.hash.replace(/^#\/?/, '');
+  const parts = hash.split('/').filter(Boolean);
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-overview').classList.add('active');
+  pg.classList.remove('chart-mode');
+  if (!parts.length || parts[0] === 'overview') renderOverview();
+  else if (parts[0] === 'strategy' && parts[1] && parts[2]) renderStrategyDetail(parts[1], parts[2]);
+  else if (parts[0] === 'chart'    && parts[1] && parts[2]) { pg.classList.add('chart-mode'); renderSymbolChart(parts[1], decodeURIComponent(parts[2])); }
+  else renderOverview();
+}
+window.addEventListener('hashchange', route);
+window.addEventListener('DOMContentLoaded', () =>
+  loadData().catch(e => {
+    document.getElementById('page').innerHTML =
+      '<div style="padding:40px;text-align:center;color:var(--red)">Error loading data: ' + e.message + '</div>';
+  })
+);
+
+function destroyCharts() {
+  _charts.forEach(c => { try { c.remove(); } catch(_) {} });
+  _charts = [];
+}
+
+/* ── UTILS ──────────────────────────────────────── */
+const fmt = (n, d=0) => n == null ? '—' : n.toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
+const avgRetFromYearly = yearly => {
+  const vals = Object.values(yearly||{}).map(y => y.ret_pct||0);
+  return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+};
+const pct = (n, d=1) => n == null ? '—' : (n >= 0 ? '+' : '') + n.toFixed(d) + '%';
+const clr = n => n >= 0 ? 'pos' : 'neg';
+const nav = hash => { location.hash = hash ? '/' + hash : ''; };
+const pill = r => {
+  const cls = r === 'uptrend' ? 'uptrend' : r === 'choppy' ? 'choppy' : 'downtrend';
+  const lbl = r === 'uptrend' ? '▲ UPTREND' : r === 'choppy' ? '≈ CHOPPY' : '▼ DOWNTREND';
+  return '<span class="pill ' + cls + '">' + lbl + '</span>';
+};
+const sLabel = id => id ? id.replace(/_/g, ' ') : '—';
+
+/* ── OVERVIEW ────────────────────────────────────── */
+function renderOverview() {
+  const rm     = D.regime_map || {};
+  const strats = D.strategies || [];
+  const cur    = (D.current_regime || '').toLowerCase();
+  const allIds = [...new Set(Object.keys(rm).map(k => k.split('|')[0]))].sort();
+  const optLookup = {};
+  strats.forEach(s => { optLookup[s.id + '|' + s.regime] = s; });
+
+  if (!allIds.length) { renderOverviewFallback(strats, cur); return; }
+
+  const REGIMES = [
+    {key:'uptrend',   label:'▲ Uptrend'},
+    {key:'choppy',    label:'≈ Choppy'},
+    {key:'downtrend', label:'▼ Downtrend'},
+  ];
+
+  let cols = '';
+  REGIMES.forEach(({key, label}) => {
+    const isActive = cur === key;
+    // Build entries sorted: PASS first by ret_pct desc, then FAIL by calmar desc
+    const entries = allIds.map(id => {
+      const base = rm[id + '|' + key];
+      return base ? {id, base, opt: optLookup[id + '|' + key], pass: base.pass} : null;
+    }).filter(Boolean).sort((a, b) => {
+      if (a.pass !== b.pass) return b.pass - a.pass;
+      const ar = a.opt ? a.opt.ret_pct : a.base.calmar * 10;
+      const br = b.opt ? b.opt.ret_pct : b.base.calmar * 10;
+      return br - ar;
+    });
+    const passCount = entries.filter(e => e.pass).length;
+
+    let cards = '';
+    entries.forEach(({id, base, opt, pass}) => {
+      const calmar  = opt ? opt.calmar  : base.calmar;
+      const retPct  = opt ? opt.ret_pct : avgRetFromYearly(base.yearly);
+      const wr      = opt ? opt.win_rate : base.wr;
+      const ntrades = opt ? opt.symbols.reduce((a,s) => a + s.trade_count, 0) : base.trade_count;
+      const click   = pass && opt ? 'onclick="nav(\'strategy/' + id + '/' + key + '\')"' : '';
+      cards +=
+        '<div class="strat-card ' + (pass ? 'pass ' + (opt ? 'clickable' : '') : 'fail') + '" ' + click + '>' +
+          '<div class="sc-name">' + sLabel(id) + ' <span class="badge ' + (pass ? 'pass' : 'fail') + '">' + (pass ? 'PASS' : 'FAIL') + '</span></div>' +
+          '<div class="sc-metrics">' +
+            '<div class="sc-m"><div class="sc-ml">Calmar</div><div class="sc-mv neu">' + fmt(calmar, 2) + '</div></div>' +
+            '<div class="sc-m"><div class="sc-ml">Win Rate</div><div class="sc-mv neu">' + fmt(wr, 1) + '%</div></div>' +
+            (retPct != null ? '<div class="sc-m"><div class="sc-ml">Ret/yr</div><div class="sc-mv ' + clr(retPct) + '">' + pct(retPct) + '</div></div>' : '') +
+            '<div class="sc-m"><div class="sc-ml">Trades</div><div class="sc-mv neu">' + ntrades + '</div></div>' +
+          '</div>' +
+        '</div>';
+    });
+    if (!cards) cards = '<div class="no-edge">No strategies in this regime</div>';
+
+    cols +=
+      '<div class="regime-col' + (isActive ? ' active-col' : '') + '">' +
+        '<div class="rcol-hdr ' + key + '">' +
+          '<span class="rcol-title ' + key + '">' + label + '</span>' +
+          (isActive ? '<span class="active-mark">ACTIVE</span>' : '') +
+          '<span class="rcol-ct">' + passCount + '/' + allIds.length + ' PASS</span>' +
+        '</div>' +
+        '<div class="rcol-body">' + cards + '</div>' +
+      '</div>';
+  });
+
+  const tableSection = buildPerfTable(rm, optLookup, allIds);
+
+  document.getElementById('page').innerHTML =
+    '<div class="ov-bar"><div class="ov-inner"><h2>Regime Overview</h2></div></div>' +
+    '<div style="padding-top:20px">' + tableSection + '</div>' +
+    '<div class="ov-grid">' + cols + '</div>';
+}
+
+function renderOverviewFallback(strats, cur) {
+  const sorted = [...strats].sort((a,b) => (b.ret_pct||0) - (a.ret_pct||0));
+  const REGIMES = ['uptrend','choppy','downtrend'];
+  const LABELS  = {uptrend:'▲ Uptrend', choppy:'≈ Choppy', downtrend:'▼ Downtrend'};
+  let cols = '';
+  REGIMES.forEach(reg => {
+    const match = sorted.filter(s => s.regime === reg);
+    let cards = match.map(s => {
+      const n = s.symbols.reduce((a,x) => a + x.trade_count, 0);
+      return '<div class="strat-card pass clickable" onclick="nav(\'strategy/' + s.id + '/' + reg + '\')">' +
+        '<div class="sc-name">' + sLabel(s.id) + ' <span class="badge pass">PASS</span></div>' +
+        '<div class="sc-metrics">' +
+          '<div class="sc-m"><div class="sc-ml">Calmar</div><div class="sc-mv neu">' + fmt(s.calmar,2) + '</div></div>' +
+          '<div class="sc-m"><div class="sc-ml">Ret/yr</div><div class="sc-mv ' + clr(s.ret_pct) + '">' + pct(s.ret_pct) + '</div></div>' +
+          '<div class="sc-m"><div class="sc-ml">Trades</div><div class="sc-mv neu">' + n + '</div></div>' +
+        '</div></div>';
+    }).join('');
+    if (!cards) cards = '<div class="no-edge">No strategies passed</div>';
+    cols += '<div class="regime-col' + (cur===reg ? ' active-col' : '') + '">' +
+      '<div class="rcol-hdr ' + reg + '"><span class="rcol-title ' + reg + '">' + LABELS[reg] + '</span>' +
+      (cur===reg ? '<span class="active-mark">ACTIVE</span>' : '') + '</div>' +
+      '<div class="rcol-body">' + cards + '</div></div>';
+  });
+  document.getElementById('page').innerHTML =
+    '<div class="ov-bar"><div class="ov-inner"><h2>Strategy Overview</h2><span class="sub">' + (D.market||'') + ' &nbsp;·&nbsp; ' + (D.generated||'') + '</span></div></div>' +
+    '<div class="ov-grid">' + cols + '</div>';
+}
+
+/* ── PERF TABLE BUILDER ──────────────────────────── */
+const CAPITAL = 1_000_000;
+
+function optYearly(opt, years) {
+  if (!opt || !opt.symbols) return null;
+  const yrPnl = {};
+  years.forEach(y => yrPnl[y] = 0);
+  opt.symbols.forEach(s => {
+    (s.trades || []).forEach(t => {
+      const yr = t.entry_date.slice(0, 4);
+      if (yr in yrPnl) yrPnl[yr] += t.pnl || 0;
+    });
+  });
+  const result = {};
+  years.forEach(y => result[y] = {ret_pct: +(yrPnl[y] / CAPITAL * 100).toFixed(2)});
+  return result;
+}
+
+function buildPerfTable(rm, optLookup, allIds) {
+  const REGIMES = ['uptrend','choppy','downtrend'];
+  const passEntries = [];
+  allIds.forEach(id => {
+    REGIMES.forEach(reg => {
+      const base = rm[id+'|'+reg];
+      if (base && base.pass) {
+        passEntries.push({id, reg, base, opt: optLookup[id+'|'+reg]||null});
+      }
+    });
+  });
+  if (!passEntries.length) return '';
+
+  const allYears = new Set();
+  passEntries.forEach(({base}) => Object.keys(base.yearly||{}).forEach(y => allYears.add(y)));
+  const years = [...allYears].sort();
+
+  let tCal=0, tDd=0, tWr=0, n=0;
+  const tYr = {};
+  years.forEach(y => tYr[y] = 0);
+
+  let rows = '';
+  passEntries.forEach(({id, reg, base, opt}) => {
+    const calmar  = opt ? opt.calmar   : base.calmar;
+    const dd      = opt ? opt.max_dd   : base.max_dd;
+    const wr      = opt ? opt.win_rate : base.wr;
+    const yearly  = (opt ? optYearly(opt, years) : null) || base.yearly || {};
+    tCal += calmar||0; tDd += dd||0; tWr += wr||0; n++;
+
+    let yrCells = '';
+    years.forEach(y => {
+      const rp = (yearly[y] || {}).ret_pct;
+      if (rp != null) tYr[y] += rp;
+      const cls = rp == null ? '' : rp >= 0 ? 'pos' : 'neg';
+      yrCells += '<td class="yr-cell ' + cls + '">' + (rp != null ? pct(rp) : '—') + '</td>';
+    });
+
+    rows +=
+      '<tr onclick="nav(\'strategy/' + id + '/' + reg + '\')">' +
+        '<td class="pt-name">' + sLabel(id) + '</td>' +
+        '<td>' + pill(reg) + '</td>' +
+        '<td class="mono">' + fmt(calmar,2) + '</td>' +
+        '<td class="mono neg">' + (dd!=null ? fmt(dd,1)+'%' : '—') + '</td>' +
+        '<td class="mono">' + (wr!=null ? fmt(wr,1)+'%' : '—') + '</td>' +
+        yrCells +
+      '</tr>';
+  });
+
+  let tallyYr = '';
+  years.forEach(y => {
+    const v = tYr[y];
+    const cls = v >= 0 ? 'pos' : 'neg';
+    tallyYr += '<td class="yr-cell ' + cls + '" style="font-weight:700">' + pct(v) + '</td>';
+  });
+  const tallyRow =
+    '<tr class="tally-row">' +
+      '<td colspan="2" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2)">Tally &nbsp;·&nbsp; ' + n + ' passing strategies</td>' +
+      '<td class="mono">' + fmt(tCal/n,2) + ' avg</td>' +
+      '<td class="mono neg">' + fmt(tDd/n,1) + '% avg</td>' +
+      '<td class="mono">' + fmt(tWr/n,1) + '% avg</td>' +
+      tallyYr +
+    '</tr>';
+
+  const yrTh = years.map(y => '<th class="yr-th">' + y + '</th>').join('');
+
+  return (
+    '<div style="padding:0 20px 24px;max-width:1200px;margin:0 auto;width:100%">' +
+      '<div class="card">' +
+        '<div class="card-hdr">5-Year Performance — All Passing Strategies (Optimised)</div>' +
+        '<div style="overflow-x:auto">' +
+          '<table class="perf-table">' +
+            '<thead><tr>' +
+              '<th>Strategy</th><th>Regime</th>' +
+              '<th>Calmar</th><th>DD</th><th>WR</th>' +
+              yrTh +
+            '</tr></thead>' +
+            '<tbody>' + rows + tallyRow + '</tbody>' +
+          '</table>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+/* ── STRATEGY DETAIL ─────────────────────────────── */
+function renderStrategyDetail(stratId, regime) {
+  const strat = (D.strategies||[]).find(s => s.id===stratId && s.regime===regime);
+  const rm    = (D.regime_map||{})[stratId+'|'+regime] || {};
+  if (!strat && !rm.calmar) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Not found.</div>';
+    return;
+  }
+  const calmar  = strat ? strat.calmar  : rm.calmar;
+  const retPct  = strat ? strat.ret_pct : null;
+  const wr      = strat ? strat.win_rate : rm.wr;
+  const maxdd   = strat ? strat.max_dd  : rm.max_dd;
+  const combo   = strat ? strat.combo   : '';
+  const syms    = strat ? strat.symbols : [];
+  const ip      = strat ? (strat.indicator_params||{}) : {};
+  const totalTrades = syms.reduce((a,s) => a + s.trade_count, 0);
+
+  // ── Year bars (base run)
+  const yearly = rm.yearly || {};
+  const yrs    = Object.keys(yearly).sort();
+  let maxAbs = 0;
+  yrs.forEach(y => { const v = Math.abs((yearly[y]||{}).ret_pct||0); if (v>maxAbs) maxAbs=v; });
+  let yrBarsHtml = '';
+  if (yrs.length) {
+    yrs.forEach(y => {
+      const info = yearly[y]||{}, rp = info.ret_pct||0;
+      const w = maxAbs > 0 ? Math.abs(rp)/maxAbs*100 : 0;
+      const cls = rp >= 0 ? 'pos' : 'neg';
+      yrBarsHtml +=
+        '<div class="yr-row">' +
+          '<div class="yr-lbl">' + y + '</div>' +
+          '<div class="yr-wrap"><div class="yr-bar ' + cls + '" style="width:' + w.toFixed(1) + '%"></div></div>' +
+          '<div class="yr-val ' + cls + '">' + pct(rp) + '</div>' +
+          '<div class="yr-tc">' + (info.trade_count||0) + ' trades</div>' +
+        '</div>';
+    });
+  } else {
+    yrBarsHtml = '<div style="color:var(--text3);font-size:11px">No yearly data — re-run chart-export</div>';
+  }
+
+  // ── Param explanation
+  const paramsHtml = buildParams(stratId, combo, ip, strat ? (strat.params||null) : null);
+
+  // ── Year accordion: group trades by entry year
+  // Group trades by position_id so partial exits count as 1 trade
+  const yearMap = {};
+  syms.forEach(s => {
+    // First pass: accumulate PnL per position
+    const posPnl = {};
+    const posYr  = {};
+    (s.trades||[]).forEach(t => {
+      const pid = t.position_id || (t.entry_date + '_' + t.entry_price);
+      const yr  = t.entry_date.slice(0, 4);
+      posPnl[pid] = (posPnl[pid] || 0) + t.pnl;
+      posYr[pid]  = yr;
+    });
+    // Second pass: count positions per year
+    Object.entries(posPnl).forEach(([pid, pnl]) => {
+      const yr = posYr[pid];
+      if (!yearMap[yr]) yearMap[yr] = {};
+      if (!yearMap[yr][s.symbol]) yearMap[yr][s.symbol] = {symbol:s.symbol, pnl:0, trades:0, wins:0};
+      const d = yearMap[yr][s.symbol];
+      d.pnl += pnl; d.trades++; if (pnl > 0) d.wins++;
+    });
+  });
+  const sortedYrs = Object.keys(yearMap).sort().reverse(); // newest first
+
+  let accordHtml = '';
+  sortedYrs.forEach((yr, idx) => {
+    const symList  = Object.values(yearMap[yr]).sort((a,b) => b.pnl - a.pnl);
+    const yrPnl    = symList.reduce((a,s) => a + s.pnl, 0);
+    const yrTrades = symList.reduce((a,s) => a + s.trades, 0);
+    const isOpen   = idx === 0;
+    let rows = '';
+    symList.forEach((s, i) => {
+      const wrS = s.trades > 0 ? (s.wins/s.trades*100).toFixed(0) + '%' : '—';
+      rows +=
+        '<tr>' +
+          '<td style="color:var(--text3)">' + (i+1) + '</td>' +
+          '<td><a class="sym-link" onclick="nav(\'chart/' + stratId + '/' + encodeURIComponent(s.symbol) + '\')">' + s.symbol + '</a></td>' +
+          '<td class="' + clr(s.pnl) + '">' + fmt(s.pnl) + '</td>' +
+          '<td>' + s.trades + '</td>' +
+          '<td>' + wrS + '</td>' +
+          '<td><a class="sym-link" onclick="nav(\'chart/' + stratId + '/' + encodeURIComponent(s.symbol) + '\')">→ Chart</a></td>' +
+        '</tr>';
+    });
+    accordHtml +=
+      '<div class="yr-accord">' +
+        '<div class="yr-head' + (isOpen?' open':'') + '" onclick="toggleYr(this)">' +
+          '<span class="yr-yr">' + yr + '</span>' +
+          '<span class="yr-meta">' + yrTrades + ' trades &nbsp;·&nbsp; ' + symList.length + ' symbols</span>' +
+          '<span class="yr-pnl ' + clr(yrPnl) + '">' + fmt(yrPnl) + '</span>' +
+          '<span class="yr-arr">▼</span>' +
+        '</div>' +
+        '<div class="yr-body' + (isOpen?' open':'') + '">' +
+          '<table><thead><tr><th>#</th><th>Symbol</th><th>PnL</th><th>Trades</th><th>WR</th><th></th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table>' +
+        '</div>' +
+      '</div>';
+  });
+
+  document.getElementById('page').innerHTML =
+    '<div class="pg-hdr"><div class="pg-hdr-inner">' +
+      '<a class="back-btn" onclick="nav(\'\')">← Overview</a>' +
+      '<div class="pg-hdr-center"><span class="pg-title">' + sLabel(stratId) + '</span>' + pill(regime) + '</div>' +
+    '</div></div>' +
+    '<div class="pg-body">' +
+      // Performance
+      '<div class="card"><div class="card-hdr">Performance — Optimised</div><div class="card-body">' +
+        '<div class="met-row">' +
+          '<div class="m-item"><div class="m-lbl">Calmar</div><div class="m-val neu">' + fmt(calmar,2) + '</div><div class="m-note">Ann. return ÷ max drawdown</div></div>' +
+          '<div class="m-item"><div class="m-lbl">Win Rate</div><div class="m-val neu">' + (wr!=null?fmt(wr,1)+'%':'—') + '</div><div class="m-note">% of trades profitable</div></div>' +
+          (retPct!=null ? '<div class="m-item"><div class="m-lbl">Return / yr</div><div class="m-val ' + clr(retPct) + '">' + pct(retPct) + '</div><div class="m-note">Annualised on capital</div></div>' : '') +
+          '<div class="m-item"><div class="m-lbl">Max Drawdown</div><div class="m-val neg">' + (maxdd?fmt(maxdd,1)+'%':'—') + '</div><div class="m-note">Worst peak-to-trough</div></div>' +
+          '<div class="m-item"><div class="m-lbl">Trades (2yr)</div><div class="m-val neu">' + totalTrades + '</div><div class="m-note">Regime-filtered</div></div>' +
+          '<div class="m-item"><div class="m-lbl">Symbols</div><div class="m-val neu">' + syms.length + '</div><div class="m-note">With ≥1 trade</div></div>' +
+        '</div>' +
+        (combo ? '<div><span style="font-size:10px;color:var(--text3)">Combo: </span><span class="combo-tag">' + combo + '</span></div>' : '') +
+      '</div></div>' +
+      // Params
+      '<div class="card"><div class="card-hdr">Parameters &amp; Risk Management</div><div class="card-body">' + paramsHtml + '</div></div>' +
+      // Year bars
+      '<div class="card"><div class="card-hdr">Annual Returns — base run (5yr)</div><div class="card-body"><div class="yr-bars">' + yrBarsHtml + '</div></div></div>' +
+      // Year accordion
+      (sortedYrs.length ?
+        '<div class="card"><div class="card-hdr">Trades by Year — 5yr window</div><div class="card-body" style="padding:8px">' + accordHtml + '</div></div>' :
+        '<div style="padding:20px;text-align:center;color:var(--text3)">No 2yr trades found.</div>') +
+    '</div>';
+}
+
+function toggleYr(hdr) {
+  hdr.classList.toggle('open');
+  hdr.nextElementSibling.classList.toggle('open');
+}
+
+/* ── PARAM EXPLANATION ───────────────────────────── */
+function buildParams(stratId, combo, ip, p) {
+  // p = exported_params from pipeline (accurate); fall back to combo parsing if absent
+  const SL   = p ? p.sl_atr_mult   : 1.5;
+  const TP1  = p ? p.tp1_atr_mult  : 3.0;
+  const TP2  = p ? p.tp2_atr_mult  : null;   // null = off
+  const tp1Pct = p ? Math.round((p.tp1_partial_pct||1)*100) : (combo.includes('tp1_30pct')?30:100);
+  const tp2Pct = p ? (p.tp2_partial_pct!=null ? Math.round(p.tp2_partial_pct*100) : null) : (combo.includes('tp2_30pct')?30:null);
+  const hasEMA  = p ? !!(p.ema_exit_period) : combo.includes('ema10');
+  const emaPer  = p ? (p.ema_exit_period||10) : 10;
+  const trailPct = 100 - tp1Pct - (tp2Pct||0);
+  const rr1 = SL > 0 ? (TP1/SL).toFixed(1) : '—';
+  const rr2 = (TP2 && SL > 0) ? (TP2/SL).toFixed(1) : null;
+  const rvol = p ? p.rvol_min : null;
+  const rsm  = p ? p.rsm_min  : null;
+
+  let entryRows = '';
+  if (stratId === 'ma_cross') {
+    const f = p ? (p.fast_period||ip.ma_fast||10) : (ip.ma_fast||10);
+    const s = p ? (p.slow_period||ip.ma_slow||20) : (ip.ma_slow||20);
+    entryRows =
+      row('Fast MA', 'EMA'+f, 'Short-term momentum line. Entry when price crosses above EMA'+f) +
+      row('Slow MA', 'SMA'+s, 'Trend filter — only trade when EMA'+f+' > SMA'+s+' (momentum aligned with trend)');
+  } else if (stratId === 'bb_squeeze') {
+    const kc = p ? (p.kc_mult||ip.kc_mult||2.0) : (ip.kc_mult||2.0);
+    entryRows =
+      row('Bollinger Band', '20-period ±2σ', 'Volatility envelope. Band = 2 standard deviations from 20-day mean price') +
+      row('Keltner Channel', kc+'× ATR', 'ATR-based channel around EMA20. Squeeze = BB inside KC → volatility contracting, coiling for a move') +
+      row('Entry Signal', 'Squeeze release', 'Trade when BB expands outside KC — compression breakout with momentum confirmation');
+  } else if (stratId === 'trendline_breakout') {
+    const sw = p ? (p.swing_period||3) : (combo.match(/sw(\d)/)?+combo.match(/sw(\d)/)[1]:3);
+    entryRows =
+      row('Swing Breakout', sw+'-bar high', 'Entry when close exceeds the highest high of the past '+sw+' bars — price breaking above recent resistance') +
+      row('Trend Filter', 'SMA50', 'Long only when price is above SMA50 — confirms uptrend context, avoids counter-trend trades');
+  } else if (stratId === 'reversal') {
+    const rsi = ip.rsi_period||14;
+    const thr = p ? (p.rsi_threshold||40) : (ip.rsi_threshold||40);
+    entryRows =
+      row('RSI', 'RSI('+rsi+')', 'Momentum oscillator 0–100. Low value = price fell faster than recent average → potential oversold bounce') +
+      row('Oversold Level', '≤ '+thr, 'Entry when RSI ≤ '+thr+'. Price has pulled back enough to be stretched — buying the dip in context of the regime') +
+      row('Trend Bias', 'SMA50', 'Confirms regime direction. Prevents buying into strong downtrends without structural support');
+  } else if (stratId === 'pivot_breakout') {
+    const sw = p ? (p.swing_period||5) : 5;
+    entryRows = row('Pivot Breakout', sw+'-bar high', 'Entry above pivot high from past '+sw+' bars — classic range breakout entry');
+  }
+
+  // Filters
+  if (rvol && rvol > 0) {
+    entryRows += row('RVOL Filter', '≥ '+rvol+'× avg', 'Relative volume vs 20-day average. Must exceed '+rvol+'× — confirms breakout has real participation, not a low-volume drift');
+  }
+  if (rsm && rsm > 0) {
+    entryRows += row('RSM Filter', '≥ '+rsm, 'Relative Strength Momentum — ranks stock vs market peers. ≥ '+rsm+' = stock is outperforming the universe (top '+(100-rsm)+'%). Favors leaders, avoids laggards');
+  }
+
+  // Risk rows
+  let riskRows =
+    row('Stop Loss', SL+'× ATR', 'Hard stop. ATR measures recent daily range. If ATR = 1.0 pt, stop is '+SL+' pt below entry. This is 1R — your defined risk per trade') +
+    row('TP1 ('+tp1Pct+'% exit)', TP1+'× ATR — '+rr1+':1 R/R', 'First target at '+rr1+'× risk. Exit '+tp1Pct+'% of position here. Guarantees profit on majority before uncertainty grows');
+  if (TP2 != null && tp2Pct) {
+    riskRows += row('TP2 ('+tp2Pct+'% exit)', TP2+'× ATR — '+rr2+':1 R/R', 'Second target at '+rr2+'× risk. Exit '+tp2Pct+'% here. Captures extended trend move while runner still open');
+  }
+  if (hasEMA && trailPct > 0) {
+    riskRows += row('EMA Trail ('+trailPct+'% exit)', 'EMA'+emaPer+' cross', 'Remaining '+trailPct+'% exits when close drops below EMA'+emaPer+'. No fixed cap — lets big winners compound. Best for trending regimes');
+  } else if (!hasEMA) {
+    riskRows += row('Full Exit at TP1', '100% position', 'All exits at TP1. Simpler — no partial management, consistent execution');
+  }
+  riskRows += row('Breakeven Stop', 'Off', 'Stop is NOT moved to entry after partial profit. Full 1R risk stays open. Higher variance but better EV on trend-following strategies');
+
+  return (
+    '<div class="param-section">' +
+      '<div class="param-sec-title">Entry Signal</div>' +
+      '<div class="param-grid">' + entryRows + '</div>' +
+    '</div>' +
+    '<div class="param-section">' +
+      '<div class="param-sec-title">Risk Management</div>' +
+      '<div class="param-grid">' + riskRows + '</div>' +
+    '</div>'
+  );
+}
+function row(k, v, d) {
+  return '<div class="param-row"><span class="pk">'+k+'</span><span class="pv">'+v+'</span><span class="pd">'+d+'</span></div>';
+}
+
+/* ── SYMBOL CHART ────────────────────────────────── */
+function renderSymbolChart(stratId, symbol) {
+  const strat   = (D.strategies||[]).find(s => s.id===stratId);
+  const symData = strat ? (strat.symbols||[]).find(s => s.symbol===symbol) : null;
+  const ohlcv   = (D.ohlcv||{})[symbol];
+  if (!symData || !ohlcv || !ohlcv.length) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No data for '+symbol+'.</div>';
+    return;
+  }
+  const regime  = strat.regime;
+  const trades  = symData.trades || [];
+  const winRate = symData.trade_count > 0 ? (symData.win_count/symData.trade_count*100).toFixed(0)+'%' : '—';
+  const showRsi = stratId === 'reversal';
+
+  let trows = '';
+  trades.forEach(t => {
+    trows +=
+      '<tr>' +
+        '<td>'+t.entry_date+'</td><td>'+t.exit_date+'</td>' +
+        '<td>'+t.entry_price+'</td><td>'+t.exit_price+'</td>' +
+        '<td style="color:var(--red)">'+(t.sl_price??'—')+'</td>' +
+        '<td style="color:var(--green)">'+(t.tp1_price??'—')+'</td>' +
+        '<td style="color:var(--accent)">'+(t.tp2_price??'—')+'</td>' +
+        '<td>'+t.bars_held+'</td>' +
+        '<td style="color:var(--text2)">'+(t.exit_reason||'—')+'</td>' +
+        '<td class="'+(t.pnl>=0?'pos':'neg')+'">'+fmt(t.pnl)+'</td>' +
+      '</tr>';
+  });
+
+  document.getElementById('page').innerHTML =
+    '<div id="chart-page">' +
+      '<div class="pg-hdr">' +
+        '<a class="back-btn" onclick="nav(\'strategy/'+stratId+'/'+regime+'\')">← '+sLabel(stratId)+'</a>' +
+        '<div class="pg-hdr-center"><span class="pg-title">'+symbol+'</span>' + pill(regime) + '</div>' +
+      '</div>' +
+      '<div id="chart-stats">' +
+        '<div class="cstat"><span class="cl">Trades</span>'+symData.trade_count+'</div>' +
+        '<div class="cstat"><span class="cl">Win Rate</span>'+winRate+'</div>' +
+        '<div class="cstat"><span class="cl">PnL</span><span class="'+clr(symData.total_pnl)+'">'+fmt(symData.total_pnl)+'</span></div>' +
+      '</div>' +
+      '<div id="chart-legend"></div>' +
+      '<div id="chart-wrap">' +
+        '<div id="lw-main"></div>' +
+        '<div id="lw-volume"></div>' +
+        (showRsi ? '<div id="lw-rsi"></div>' : '') +
+      '</div>' +
+      '<div id="trade-tbl">' +
+        '<table>' +
+          '<thead><tr><th>Entry</th><th>Exit</th><th>Entry Px</th><th>Exit Px</th><th>SL</th><th>TP1</th><th>TP2</th><th>Bars</th><th>Reason</th><th>PnL</th></tr></thead>' +
+          '<tbody>'+trows+'</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
+
+  requestAnimationFrame(() => buildChart(strat, symData, ohlcv, showRsi));
+}
+
+/* ── LW CHART ───────────────────────────────────── */
+function buildChart(strat, symData, ohlcv, showRsi) {
+  const mainEl   = document.getElementById('lw-main');
+  const volEl    = document.getElementById('lw-volume');
+  const rsiEl    = document.getElementById('lw-rsi');
+  if (!mainEl) return;
+
+  const ip = strat.indicator_params || {};
+  const trades = symData.trades || [];
+
+  const base = {
+    layout:   { background:{type:'Solid',color:'#ffffff'}, textColor:'#656d76' },
+    grid:     { vertLines:{color:'#eaeef2'}, horzLines:{color:'#eaeef2'} },
+    crosshair: { mode: 1 },
+    rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.05, bottom:0.2} },
+    timeScale: { borderColor:'#d0d7de', timeVisible:true },
+    autoSize:  true,
+  };
+
+  const chart = LightweightCharts.createChart(mainEl, base);
+  _charts.push(chart);
+
+  const candle = chart.addCandlestickSeries({
+    upColor:'#1a7f37', downColor:'#cf222e',
+    borderUpColor:'#1a7f37', borderDownColor:'#cf222e',
+    wickUpColor:'#1a7f37', wickDownColor:'#cf222e',
+  });
+  candle.setData(ohlcv);
+
+  const legend = [];
+
+  if (strat.id === 'ma_cross') {
+    const f=ip.ma_fast||10, s=ip.ma_slow||20;
+    addLine(chart, calcEMA(ohlcv,f), '#d97706', 1.5);
+    addLine(chart, calcSMA(ohlcv,s), '#0969da', 1.5);
+    legend.push({c:'#d97706',l:'EMA'+f}, {c:'#0969da',l:'SMA'+s});
+  } else if (strat.id === 'bb_squeeze') {
+    const bb=calcBB(ohlcv,ip.bb_period||20,ip.bb_mult||2.0);
+    const kc=calcKC(ohlcv,ip.kc_mult||2.0);
+    addLine(chart,bb.upper,'#7c3aed',1.2,true);
+    addLine(chart,bb.lower,'#7c3aed',1.2,true);
+    addLine(chart,kc.upper,'#c2410c',1.2,true);
+    addLine(chart,kc.lower,'#c2410c',1.2,true);
+    legend.push({c:'#7c3aed',l:'BB ±2σ'}, {c:'#c2410c',l:'KC ×'+(ip.kc_mult||2)});
+  } else if (strat.id === 'trendline_breakout') {
+    const ep=ip.ema_exit||10;
+    addLine(chart,calcEMA(ohlcv,ep),'#d97706',1.5);
+    addLine(chart,calcSMA(ohlcv,50),'#0969da',1.5);
+    legend.push({c:'#d97706',l:'EMA'+ep}, {c:'#0969da',l:'SMA50'});
+  } else if (strat.id === 'reversal') {
+    addLine(chart,calcSMA(ohlcv,50),'#0969da',1.5);
+    legend.push({c:'#0969da',l:'SMA50'});
+  }
+
+  // SL / TP bounded lines
+  const slD  = buildLvl(ohlcv, trades, t => t.sl_price);
+  const tp1D = buildLvl(ohlcv, trades, t => t.tp1_price);
+  const tp2D = buildLvl(ohlcv, trades, t => t.tp2_price);
+  if (slD.length)  { addLine(chart,slD, '#cf222e',1,true); legend.push({c:'#cf222e',l:'SL'}); }
+  if (tp1D.length) { addLine(chart,tp1D,'#1a7f37',1,true); legend.push({c:'#1a7f37',l:'TP1'}); }
+  if (tp2D.length) { addLine(chart,tp2D,'#0969da',1,true); legend.push({c:'#0969da',l:'TP2'}); }
+
+  // Markers — one Entry per unique date (deduped), exit label from reason
+  const markers = [], seen = new Set();
+  trades.forEach(t => {
+    if (!seen.has(t.entry_date)) {
+      seen.add(t.entry_date);
+      markers.push({time:t.entry_date, position:'belowBar', color:'#1a7f37', shape:'arrowUp', text:'Entry'});
+    }
+    const lbl = exitLbl(t.exit_reason);
+    const col = lbl==='SL' ? '#cf222e' : lbl.startsWith('EMA') ? '#9a6700' : '#0969da';
+    markers.push({time:t.exit_date, position:'aboveBar', color:col, shape:'arrowDown', text:lbl});
+  });
+  candle.setMarkers(markers.sort((a,b) => a.time < b.time ? -1 : 1));
+  chart.timeScale().fitContent();
+
+  // Volume sub-chart
+  if (volEl) {
+    const volChart = LightweightCharts.createChart(volEl, {
+      ...base,
+      rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.1, bottom:0}, visible:false },
+      timeScale: {...base.timeScale, visible:false},
+      autoSize: true,
+    });
+    _charts.push(volChart);
+    const volHasData = ohlcv.some(b => b.volume > 0);
+    if (volHasData) {
+      const volS = volChart.addHistogramSeries({
+        color:'#d0d7de', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:false,
+      });
+      volS.setData(ohlcv.map(b => ({
+        time:  b.time,
+        value: b.volume || 0,
+        color: b.close >= b.open ? '#b7e5c6' : '#ffc1bd',
+      })));
+      chart.timeScale().subscribeVisibleTimeRangeChange(r => { if(r) volChart.timeScale().setVisibleRange(r); });
+    }
+  }
+
+  // RSI sub-chart
+  if (showRsi && rsiEl) {
+    rsiEl.style.display = 'block';
+    const rsiChart = LightweightCharts.createChart(rsiEl, {
+      ...base, height:80,
+      timeScale: {...base.timeScale, visible:false},
+    });
+    _charts.push(rsiChart);
+    const rsiS = rsiChart.addLineSeries({color:'#7c3aed',lineWidth:1,priceLineVisible:false,lastValueVisible:false});
+    rsiS.setData(calcRSI(ohlcv, ip.rsi_period||14));
+    const thr = ip.rsi_threshold || 40;
+    rsiS.createPriceLine({price:thr, color:'#8c959f', lineWidth:1, lineStyle:2});
+    legend.push({c:'#7c3aed', l:'RSI('+(ip.rsi_period||14)+') — thr '+thr});
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if(r) rsiChart.timeScale().setVisibleRange(r); });
+  }
+
+  // Legend
+  const legEl = document.getElementById('chart-legend');
+  if (legEl) {
+    legEl.innerHTML = [
+      {c:'#1a7f37',l:'Up bar'}, {c:'#cf222e',l:'Down bar'},
+      ...legend,
+    ].map(i => '<div class="leg"><div class="leg-line" style="background:'+i.c+'"></div>'+i.l+'</div>').join('');
+  }
+}
+
+function exitLbl(reason) {
+  if (!reason) return 'EXIT';
+  if (reason === 'tp2')       return 'TP2';
+  if (reason === 'tp1')       return 'TP1';
+  if (reason === 'ema10_exit') return 'EMA10';
+  if (reason === 'sl')        return 'SL';
+  return reason.toUpperCase().slice(0, 5);
+}
+
+/* ── INDICATOR MATH ─────────────────────────────── */
+function addLine(chart, data, color, width=1, dashed=false) {
+  const s = chart.addLineSeries({color, lineWidth:width, lineStyle:dashed?2:0, priceLineVisible:false, lastValueVisible:false});
+  s.setData(data.filter(d => d.value != null));
+}
+function buildLvl(ohlcv, trades, fn) {
+  return ohlcv.reduce((out, bar) => {
+    const t = trades.find(t => bar.time >= t.entry_date && bar.time <= t.exit_date);
+    const v = t ? fn(t) : null;
+    if (v != null) out.push({time:bar.time, value:v});
+    return out;
+  }, []);
+}
+function calcEMA(bars, p) {
+  const k = 2/(p+1); let ema = null;
+  return bars.map(b => { ema = ema==null ? b.close : b.close*k + ema*(1-k); return {time:b.time,value:ema}; });
+}
+function calcSMA(bars, p) {
+  return bars.map((b,i) => {
+    if (i < p-1) return {time:b.time, value:null};
+    let s=0; for(let j=0;j<p;j++) s+=bars[i-j].close;
+    return {time:b.time, value:s/p};
+  });
+}
+function calcATR(bars, p=14) {
+  let atr = null;
+  return bars.map((b,i) => {
+    const tr = i===0 ? b.high-b.low : Math.max(b.high-b.low, Math.abs(b.high-bars[i-1].close), Math.abs(b.low-bars[i-1].close));
+    atr = atr==null ? tr : (atr*(p-1)+tr)/p;
+    return atr;
+  });
+}
+function calcBB(bars, p=20, mult=2.0) {
+  const upper=[], lower=[];
+  bars.forEach((b,i) => {
+    if (i<p-1){upper.push({time:b.time,value:null});lower.push({time:b.time,value:null});return;}
+    let sum=0,sum2=0;
+    for(let j=0;j<p;j++){sum+=bars[i-j].close;sum2+=bars[i-j].close**2;}
+    const mean=sum/p, std=Math.sqrt(sum2/p-mean**2);
+    upper.push({time:b.time,value:mean+mult*std});
+    lower.push({time:b.time,value:mean-mult*std});
+  });
+  return {upper, lower};
+}
+function calcKC(bars, mult=2.0, p=20) {
+  const atrs=calcATR(bars,p), ema=calcEMA(bars,p);
+  return {
+    upper: bars.map((b,i)=>({time:b.time,value:ema[i].value+mult*atrs[i]})),
+    lower: bars.map((b,i)=>({time:b.time,value:ema[i].value-mult*atrs[i]})),
+  };
+}
+function calcRSI(bars, p=14) {
+  const out=[]; let ag=0, al=0;
+  for (let i=1;i<bars.length;i++) {
+    const d=bars[i].close-bars[i-1].close, g=d>0?d:0, l=d<0?-d:0;
+    if (i<=p) { ag+=g/p; al+=l/p; if(i===p){const rs=al===0?100:ag/al;out.push({time:bars[i].time,value:100-100/(1+rs)});}}
+    else { ag=(ag*(p-1)+g)/p; al=(al*(p-1)+l)/p; const rs=al===0?100:ag/al; out.push({time:bars[i].time,value:100-100/(1+rs)}); }
+  }
+  return out;
+}
+</script>
+</body>
+</html>

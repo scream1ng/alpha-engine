@@ -4,6 +4,7 @@ from strategies.base import Strategy
 from core.registry import StrategyRegistry
 from core.signal import Signal
 from core.indicators import atr, rvol
+from core.tick import set_tick
 
 
 @StrategyRegistry.register
@@ -53,14 +54,25 @@ class PivotBreakout(Strategy):
         if float(_atr.iloc[-1]) == 0:
             return []
 
+        entry_mode = p.get("entry_mode", "market_close")
+        if entry_mode in ("limit_intraday", "limit_fakeout", "intraday_breakout"):
+            entry = round(float(prev_high) + set_tick(float(prev_high)), 6)
+            etype = entry_mode if entry_mode != "intraday_breakout" else "market_close"
+        else:
+            entry = float(bar["close"])
+            etype = "market_close"
+
         sig = self._build_signal(
             df=df,
             params=p,
-            entry=float(bar["close"]),
-            entry_type="market_close",
+            entry=entry,
+            entry_type=etype,
             atr_val=float(_atr.iloc[-1]),
-            meta={"prev_high": float(prev_high), "rvol": float(_rvol.iloc[-1])},
+            meta={"prev_high": float(prev_high), "fakeout_level": float(prev_high),
+                  "rvol": float(_rvol.iloc[-1])},
         )
+        if entry_mode == "limit_fakeout":
+            sig.exit_policies = ["fakeout", "hard_exit"]
         if sig.rr < 1.0:
             return []
         return [sig]

@@ -29,6 +29,27 @@ class THAdapter(MarketAdapter):
         df.index = pd.to_datetime(df.index).tz_localize(None)
         return df[["open", "high", "low", "close", "volume"]].dropna()
 
+    def ohlcv_intraday(self, symbol: str, day: date, interval: str = "15m") -> pd.DataFrame:
+        from datetime import timedelta
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(
+            start=str(day),
+            end=str(day + timedelta(days=1)),
+            interval=interval,
+            auto_adjust=True,
+        )
+        if df.empty:
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        df = df.rename(columns={
+            "Open": "open", "High": "high", "Low": "low",
+            "Close": "close", "Volume": "volume",
+        })
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert("Asia/Bangkok").tz_localize(None)
+        else:
+            df.index = pd.to_datetime(df.index)
+        return df[["open", "high", "low", "close", "volume"]].dropna()
+
     def tx_costs(self, symbol: str) -> dict:
         c = TX_COSTS["th"]
         return {

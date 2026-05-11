@@ -3,7 +3,7 @@ from core.signal import Signal
 
 
 def is_pending_order(signal: Signal) -> bool:
-    return signal.entry_type in ("pending_stop", "pending_limit")
+    return signal.entry_type in ("pending_stop", "pending_limit", "limit_intraday", "limit_fakeout")
 
 
 def is_market_order(signal: Signal) -> bool:
@@ -16,4 +16,7 @@ def check_pending_triggered(signal: Signal, bar: dict) -> bool:
         return bar["high"] >= signal.entry
     if signal.entry_type == "pending_limit":
         return bar["low"] <= signal.entry
+    if signal.entry_type in ("limit_intraday", "limit_fakeout"):
+        # Fills at max(entry, open); triggers if price ever reached entry level
+        return bar["high"] >= signal.entry
     return False

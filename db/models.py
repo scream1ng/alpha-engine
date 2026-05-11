@@ -176,6 +176,20 @@ class RegimeOptimiseModel(Base):
     optimised_at     = Column(DateTime, default=func.now())
 
 
+class RegimeEntryModel(Base):
+    __tablename__ = "regime_entry"
+
+    id                    = Column(Integer, primary_key=True, autoincrement=True)
+    market                = Column(String, nullable=False)
+    strategy              = Column(String, nullable=False)
+    regime                = Column(String, nullable=False)
+    best_entry            = Column(String, nullable=False)  # market_close / limit_intraday / limit_fakeout
+    calmar_market_close   = Column(Float)
+    calmar_limit_intraday = Column(Float)
+    calmar_limit_fakeout  = Column(Float)
+    optimised_at          = Column(DateTime, default=func.now())
+
+
 class ResearchRunModel(Base):
     __tablename__ = "research_runs"
 
@@ -243,6 +257,16 @@ def init_db() -> None:
             for col_def in ["best_combo TEXT"]:
                 try:
                     conn.execute(text(f"ALTER TABLE regime_optimise ADD COLUMN {col_def}"))
+                    conn.commit()
+                except Exception:
+                    pass  # column already exists
+            for col_def in [
+                "calmar_market_close   REAL",
+                "calmar_limit_intraday REAL",
+                "calmar_limit_fakeout  REAL",
+            ]:
+                try:
+                    conn.execute(text(f"ALTER TABLE regime_entry ADD COLUMN {col_def}"))
                     conn.commit()
                 except Exception:
                     pass  # column already exists

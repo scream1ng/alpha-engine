@@ -22,9 +22,12 @@ MARKETS = [
 ]
 
 COMMANDS = [
+    ("run-all",         "Full pipeline: regime → optimise → chart-export (monthly)"),
     ("regime",          "5yr regime discovery — which strategies suit uptrend/choppy/downtrend"),
-    ("optimise-regime", "TP exit optimisation on PASS regime pairs (3 combos)"),
+    ("regime-optimise", "TP exit optimisation on PASS regime pairs"),
     ("regime-report",   "View last regime discovery result (instant)"),
+    ("chart-export",    "Export optimised backtests → docs/chart_data.json for web viewer"),
+    ("serve",           "Start local web server → http://localhost:8000  (Ctrl+C to stop)"),
 ]
 
 _ADAPTERS = {
@@ -80,6 +83,23 @@ def _parse_symbols(raw: str) -> int | None:
     return int(value)
 
 
+def _serve() -> None:
+    import os
+    import threading
+    import webbrowser
+    from http.server import HTTPServer, SimpleHTTPRequestHandler
+    docs_dir = os.path.join(os.path.dirname(__file__), "docs")
+    os.chdir(docs_dir)
+    port = 8000
+    httpd = HTTPServer(("", port), SimpleHTTPRequestHandler)
+    print(f"\n  Serving http://localhost:{port}  (Ctrl+C to stop)\n")
+    threading.Timer(0.5, lambda: webbrowser.open(f"http://localhost:{port}")).start()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n  Server stopped.")
+
+
 def _run_market(market: str, command: str, args: argparse.Namespace) -> None:
     from scripts.pipeline import run
     adapter = _get_adapter(market)
@@ -92,14 +112,17 @@ def interactive() -> None:
     print("  ║            ALPHA ENGINE  — signal system            ║")
     print("  ╚══════════════════════════════════════════════════════╝")
 
-    market  = _menu("SELECT MARKET", MARKETS)
     command = _menu("SELECT COMMAND", COMMANDS)
+    if command == "serve":
+        _serve()
+        return
+    market  = _menu("SELECT MARKET", MARKETS)
 
     symbols = None
-    if command in ("regime", "optimise-regime"):
+    if command in ("regime", "regime-optimise"):
         symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
 
-    args = argparse.Namespace(capital=1_000_000, symbols=symbols, dry_run=False)
+    args = argparse.Namespace(capital=1_000_000, symbols=symbols, dry_run=False, strategy_filter=None)
 
     from db.models import init_db
     init_db()
@@ -118,8 +141,14 @@ def cli() -> None:
     parser.add_argument("command", choices=[c for c, _ in COMMANDS])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--symbols", type=int)
+    parser.add_argument("--strategy", dest="strategy_filter", default=None,
+                        help="Limit regime-optimise to one strategy (e.g. pivot_breakout)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+
+    if args.command == "serve":
+        _serve()
+        return
 
     from db.models import init_db
     init_db()

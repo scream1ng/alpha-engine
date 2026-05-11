@@ -23,6 +23,10 @@ class MarketAdapter(ABC):
     def tx_costs(self, symbol: str) -> dict:
         """Return {commission_bps, spread_bps, slippage_bps}."""
 
+    def ohlcv_intraday(self, symbol: str, day: date, interval: str = "15m") -> pd.DataFrame:
+        """Return intraday OHLCV bars for a single trading day. Override in subclass."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not support intraday data")
+
     def benchmark_ohlcv(self, start: date, end: date) -> pd.DataFrame:
         return self.ohlcv(self.benchmark, start, end)
 

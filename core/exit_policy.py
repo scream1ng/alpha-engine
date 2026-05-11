@@ -111,8 +111,25 @@ class HardExitPolicy(ExitPolicy):
         return None
 
 
+class FakeoutExitPolicy(ExitPolicy):
+    """Exit at close on the entry bar if price closes below the breakout level.
+    Simulates intraday fakeout detection: 'price broke level but closed back below it'."""
+    id = "fakeout"
+
+    def check(self, position: Position, bar: dict, params: dict) -> Optional[ExitSignal]:
+        if position.bars_held != 1:
+            return None
+        fakeout_level = position.signal.meta.get("fakeout_level")
+        if fakeout_level is None:
+            return None
+        if bar["close"] < fakeout_level:
+            return ExitSignal(reason="fakeout", price=bar["close"])
+        return None
+
+
 EXIT_POLICIES: dict[str, ExitPolicy] = {
-    HardExitPolicy.id: HardExitPolicy(),
+    HardExitPolicy.id:  HardExitPolicy(),
+    FakeoutExitPolicy.id: FakeoutExitPolicy(),
 }
 
 

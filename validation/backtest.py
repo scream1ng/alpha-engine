@@ -64,11 +64,16 @@ def run_backtest(
         still_pending = []
         for sig in pending_signals:
             if check_pending_triggered(sig, bar_dict):
+                actual_entry = (
+                    max(sig.entry, bar_dict["open"])
+                    if sig.entry_type in ("limit_intraday", "limit_fakeout")
+                    else sig.entry
+                )
                 size = _calc_size(capital, sig, params)
                 if size > 0:
                     pos = Position(
                         signal=sig,
-                        entry_price=sig.entry,
+                        entry_price=actual_entry,
                         entry_date=bar_date,
                         size=size,
                     )
@@ -202,8 +207,13 @@ def run_portfolio_backtest(
             still_pending = []
             for sig in pending_signals[symbol]:
                 if check_pending_triggered(sig, bar_dict):
+                    actual_entry = (
+                        max(sig.entry, bar_dict["open"])
+                        if sig.entry_type in ("limit_intraday", "limit_fakeout")
+                        else sig.entry
+                    )
                     capital, buying_power = _open_portfolio_position(
-                        ledger, risk_policy, capital, buying_power, sig, params, sig.entry, bar_date
+                        ledger, risk_policy, capital, buying_power, sig, params, actual_entry, bar_date
                     )
                 else:
                     still_pending.append(sig)
