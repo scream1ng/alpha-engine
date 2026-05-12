@@ -64,5 +64,11 @@ output/
 desktop.ini
 
 
-# Generated reports
-reports/
+# Local research reports (kept out of git; see reports/README.md)
+reports/*
+!reports/README.md
+
+# Local prototype / spike files not wired into the main workflow
+app/main.py
+core/tick.py
+validation/intraday_entry.py

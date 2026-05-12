@@ -27,6 +27,12 @@ pytest tests/test_research.py::test_label_regime   # single test
 
 Available commands: `run-all`, `regime`, `optimise`, `stability`, `report`, `chart-export`, `serve`
 
+## Artifact Policy
+
+- `reports/` is the local research workspace. Latest markdown reports, `run_log.md`, `agent_context.md`, `agent_state.json`, and `history/` are generated locally and gitignored.
+- `docs/chart_data.json` is also generated, but it may be committed when the goal is to publish a specific viewer snapshot to GitHub Pages.
+- `alpha_engine_dev.db` is local development state and must stay out of git.
+
 ## Session Start
 
 **Always read `reports/run_log.md` at the start of each session.** Two sections:
@@ -132,7 +138,7 @@ Calmar is **annualized**: `(total_ret * 252 / n_regime_bars) / max_drawdown`. `n
 
 ## Reports
 
-Each command writes a markdown report to `reports/<market>_<command>_latest.md` and a timestamped copy to `reports/history/`. The `## AI Suggestions` section is the feedback hook — AI reads the report and writes improvement suggestions there before the next run.
+Each command writes a markdown report to `reports/<market>_<command>_latest.md` and a timestamped copy to `reports/history/`. These artifacts are local by default. The `## AI Suggestions` section is the feedback hook — AI reads the report and writes improvement suggestions there before the next run.
 
 ## Known Instabilities
 
