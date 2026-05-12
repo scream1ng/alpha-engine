@@ -140,6 +140,36 @@ def _build_opt_combos() -> list[dict]:
     return combos
 
 
+def _merge_chart_export_payload(existing_payload: dict | None, market_output: dict) -> dict:
+    """Merge one market snapshot into docs/chart_data.json multi-market payload."""
+    market_key = str(market_output.get("market") or "").upper()
+    markets: dict[str, dict] = {}
+
+    if isinstance(existing_payload, dict):
+        existing_markets = existing_payload.get("markets")
+        if isinstance(existing_markets, dict):
+            for key, payload in existing_markets.items():
+                if not isinstance(payload, dict):
+                    continue
+                normalized_key = str(payload.get("market") or key).upper()
+                if normalized_key:
+                    markets[normalized_key] = payload
+        elif existing_payload.get("market"):
+            normalized_key = str(existing_payload.get("market") or "").upper()
+            if normalized_key:
+                markets[normalized_key] = existing_payload
+
+    if market_key:
+        markets[market_key] = market_output
+
+    return {
+        **market_output,
+        "version": 2,
+        "default_market": market_key or None,
+        "markets": {key: markets[key] for key in sorted(markets)},
+    }
+
+
 
 def _print_regime_summary(regime_results: list[dict], all_years: list[int], W: int, YC: int) -> None:
     """Print PASS strategies summary + combined yearly totals."""
@@ -2335,8 +2365,16 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     docs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
     os.makedirs(docs_dir, exist_ok=True)
     out_path = os.path.join(docs_dir, "chart_data.json")
+    existing_payload = None
+    if os.path.exists(out_path):
+        try:
+            with open(out_path, "r", encoding="utf-8") as fh:
+                existing_payload = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("chart-export could not read existing payload %s: %s", out_path, exc)
+    merged_output = _merge_chart_export_payload(existing_payload, output)
     with open(out_path, "w", encoding="utf-8") as fh:
-        json.dump(output, fh, default=str, separators=(",", ":"))
+        json.dump(merged_output, fh, default=str, separators=(",", ":"))
     total_syms = len(ohlcv_cache)
     total_trades = sum(len(s["trades"]) for st in strategies_out for s in st["symbols"])
     print(f"\n  {len(strategies_out)} strategies · {total_syms} symbols · {total_trades} trades → {out_path}")

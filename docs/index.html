@@ -41,6 +41,10 @@ body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgr
 .regime-badge.uptrend  {background:var(--up-bg);color:var(--up-fg);border:1px solid var(--up-bdr)}
 .regime-badge.choppy   {background:var(--ch-bg);color:var(--ch-fg);border:1px solid var(--ch-bdr)}
 .regime-badge.downtrend{background:var(--dn-bg);color:var(--dn-fg);border:1px solid var(--dn-bdr)}
+.market-switch{display:flex;align-items:center;gap:6px}
+.market-pill{border:1px solid var(--border);background:var(--bg);color:var(--text2);border-radius:999px;padding:3px 9px;font:600 11px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;cursor:pointer;transition:all .12s}
+.market-pill:hover{border-color:var(--accent);color:var(--accent)}
+.market-pill.active{background:var(--accent);border-color:var(--accent);color:#fff}
 
 /* ── PAGE ─────────────────────────────────────────── */
 #page{flex:1;overflow-y:auto;min-height:0}
@@ -188,6 +192,7 @@ tr:hover td{background:var(--bg2)}
       <span class="nav-tab dim">Signals</span>
     </div>
     <div id="nav-right">
+      <div id="market-switch" class="market-switch"></div>
       <span id="nav-regime" class="regime-badge">—</span>
       <span id="nav-mkt" style="font-weight:600;color:var(--text2)">—</span>
       <span id="nav-date">—</span>
@@ -199,7 +204,69 @@ tr:hover td{background:var(--bg2)}
 
 <script>
 const DATA_URL = './chart_data.json'; // swap to Railway API when live
-let D = null, _charts = [];
+const MARKET_STORAGE_KEY = 'alpha-engine-active-market';
+let D = null, ACTIVE_MARKET = null, _charts = [];
+
+function normalizePayload(raw) {
+  if (raw && typeof raw === 'object' && raw.markets && typeof raw.markets === 'object') {
+    return raw;
+  }
+  if (raw && typeof raw === 'object' && raw.market) {
+    const key = String(raw.market).toUpperCase();
+    return { ...raw, version: 2, default_market: key, markets: {[key]: raw} };
+  }
+  return {version: 2, default_market: null, markets: {}};
+}
+
+function marketKeys() {
+  return Object.keys((D && D.markets) || {}).sort();
+}
+
+function activeMarketKey() {
+  const keys = marketKeys();
+  if (!keys.length) return null;
+  if (ACTIVE_MARKET && D.markets && D.markets[ACTIVE_MARKET]) return ACTIVE_MARKET;
+  if (D.default_market && D.markets && D.markets[D.default_market]) return D.default_market;
+  return keys[0];
+}
+
+function currentData() {
+  const key = activeMarketKey();
+  return key && D && D.markets ? D.markets[key] : null;
+}
+
+function renderMarketSwitch() {
+  const box = document.getElementById('market-switch');
+  const keys = marketKeys();
+  if (keys.length < 2) {
+    box.innerHTML = '';
+    return;
+  }
+  const active = activeMarketKey();
+  box.innerHTML = keys.map(key =>
+    '<button class="market-pill ' + (key === active ? 'active' : '') + '" onclick="setActiveMarket(\'' + key + '\')">' + key + '</button>'
+  ).join('');
+}
+
+function updateNavMeta() {
+  const data = currentData();
+  const reg = ((data && data.current_regime) || '').toLowerCase();
+  const badge = document.getElementById('nav-regime');
+  badge.textContent = (data && data.current_regime) || '-';
+  badge.className = 'regime-badge ' + reg;
+  document.getElementById('nav-mkt').textContent = activeMarketKey() || '-';
+  document.getElementById('nav-date').textContent = (data && data.generated) || '-';
+  renderMarketSwitch();
+}
+
+function setActiveMarket(marketKey, resetToOverview = true) {
+  if (!D || !D.markets || !D.markets[marketKey]) return;
+  ACTIVE_MARKET = marketKey;
+  try { localStorage.setItem(MARKET_STORAGE_KEY, marketKey); } catch (_) {}
+  updateNavMeta();
+  if (resetToOverview) nav('overview');
+  else route();
+}
 
 async function loadData() {
   const r = await fetch(DATA_URL);
@@ -226,6 +293,39 @@ function route() {
   if (!parts.length || parts[0] === 'overview') renderOverview();
   else if (parts[0] === 'strategy' && parts[1] && parts[2]) renderStrategyDetail(parts[1], parts[2]);
   else if (parts[0] === 'chart'    && parts[1] && parts[2]) { pg.classList.add('chart-mode'); renderSymbolChart(parts[1], decodeURIComponent(parts[2])); }
+  else renderOverview();
+}
+
+async function loadData() {
+  const r = await fetch(DATA_URL);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  D = normalizePayload(await r.json());
+  const storedMarket = (() => {
+    try { return localStorage.getItem(MARKET_STORAGE_KEY); } catch (_) { return null; }
+  })();
+  ACTIVE_MARKET = storedMarket && D.markets && D.markets[storedMarket] ? storedMarket : activeMarketKey();
+  updateNavMeta();
+  route();
+}
+
+function route() {
+  if (!D) return;
+  destroyCharts();
+  const data = currentData();
+  const pg = document.getElementById('page');
+  if (!data) {
+    pg.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No market snapshots exported yet. Run chart-export first.</div>';
+    return;
+  }
+  const hash  = location.hash.replace(/^#\/?/, '');
+  const parts = hash.split('/').filter(Boolean);
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-overview').classList.add('active');
+  pg.classList.remove('chart-mode');
+  if (!parts.length || parts[0] === 'overview') renderOverview();
+  else if (parts[0] === 'strategy' && parts[1] && parts[2]) renderStrategyDetail(parts[1], parts[2]);
+  else if (parts[0] === 'chart' && parts[1] && parts[2] && parts[3]) { pg.classList.add('chart-mode'); renderSymbolChart(parts[1], parts[2], decodeURIComponent(parts[3])); }
+  else if (parts[0] === 'chart' && parts[1] && parts[2]) { pg.classList.add('chart-mode'); renderSymbolChart(parts[1], null, decodeURIComponent(parts[2])); }
   else renderOverview();
 }
 window.addEventListener('hashchange', route);
@@ -259,9 +359,10 @@ const sLabel = id => id ? id.replace(/_/g, ' ') : '—';
 
 /* ── OVERVIEW ────────────────────────────────────── */
 function renderOverview() {
-  const rm     = D.regime_map || {};
-  const strats = D.strategies || [];
-  const cur    = (D.current_regime || '').toLowerCase();
+  const data   = currentData();
+  const rm     = (data && data.regime_map) || {};
+  const strats = (data && data.strategies) || [];
+  const cur    = ((data && data.current_regime) || '').toLowerCase();
   const allIds = [...new Set(Object.keys(rm).map(k => k.split('|')[0]))].sort();
   const optLookup = {};
   strats.forEach(s => { optLookup[s.id + '|' + s.regime] = s; });
@@ -329,6 +430,7 @@ function renderOverview() {
 }
 
 function renderOverviewFallback(strats, cur) {
+  const data = currentData();
   const sorted = [...strats].sort((a,b) => (b.ret_pct||0) - (a.ret_pct||0));
   const REGIMES = ['uptrend','choppy','downtrend'];
   const LABELS  = {uptrend:'▲ Uptrend', choppy:'≈ Choppy', downtrend:'▼ Downtrend'};
@@ -352,7 +454,7 @@ function renderOverviewFallback(strats, cur) {
       '<div class="rcol-body">' + cards + '</div></div>';
   });
   document.getElementById('page').innerHTML =
-    '<div class="ov-bar"><div class="ov-inner"><h2>Strategy Overview</h2><span class="sub">' + (D.market||'') + ' &nbsp;·&nbsp; ' + (D.generated||'') + '</span></div></div>' +
+    '<div class="ov-bar"><div class="ov-inner"><h2>Strategy Overview</h2><span class="sub">' + ((data && data.market)||'') + ' &nbsp;·&nbsp; ' + ((data && data.generated)||'') + '</span></div></div>' +
     '<div class="ov-grid">' + cols + '</div>';
 }
 
@@ -487,8 +589,9 @@ function buildPerfTable(rm, optLookup, allIds) {
 
 /* ── STRATEGY DETAIL ─────────────────────────────── */
 function renderStrategyDetail(stratId, regime) {
-  const strat = (D.strategies||[]).find(s => s.id===stratId && s.regime===regime);
-  const rm    = (D.regime_map||{})[stratId+'|'+regime] || {};
+  const data  = currentData();
+  const strat = ((data && data.strategies)||[]).find(s => s.id===stratId && s.regime===regime);
+  const rm    = ((data && data.regime_map)||{})[stratId+'|'+regime] || {};
   if (!strat && !rm.calmar) {
     document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Not found.</div>';
     return;
@@ -564,11 +667,11 @@ function renderStrategyDetail(stratId, regime) {
       rows +=
         '<tr>' +
           '<td style="color:var(--text3)">' + (i+1) + '</td>' +
-          '<td><a class="sym-link" onclick="nav(\'chart/' + stratId + '/' + encodeURIComponent(s.symbol) + '\')">' + s.symbol + '</a></td>' +
+          '<td><a class="sym-link" onclick="nav(\'chart/' + stratId + '/' + regime + '/' + encodeURIComponent(s.symbol) + '\')">' + s.symbol + '</a></td>' +
           '<td class="' + clr(s.pnl) + '">' + fmt(s.pnl) + '</td>' +
           '<td>' + s.trades + '</td>' +
           '<td>' + wrS + '</td>' +
-          '<td><a class="sym-link" onclick="nav(\'chart/' + stratId + '/' + encodeURIComponent(s.symbol) + '\')">→ Chart</a></td>' +
+          '<td><a class="sym-link" onclick="nav(\'chart/' + stratId + '/' + regime + '/' + encodeURIComponent(s.symbol) + '\')">→ Chart</a></td>' +
         '</tr>';
     });
     accordHtml +=
@@ -704,10 +807,14 @@ function row(k, v, d) {
 }
 
 /* ── SYMBOL CHART ────────────────────────────────── */
-function renderSymbolChart(stratId, symbol) {
-  const strat   = (D.strategies||[]).find(s => s.id===stratId);
+function renderSymbolChart(stratId, regime, symbol) {
+  const data    = currentData();
+  const strats  = ((data && data.strategies) || []).filter(s => s.id === stratId);
+  const strat   = regime
+    ? strats.find(s => s.regime === regime)
+    : strats.find(s => (s.symbols || []).some(row => row.symbol === symbol)) || strats[0];
   const symData = strat ? (strat.symbols||[]).find(s => s.symbol===symbol) : null;
-  const ohlcv   = (D.ohlcv||{})[symbol];
+  const ohlcv   = ((data && data.ohlcv) || {})[symbol];
   if (!symData || !ohlcv || !ohlcv.length) {
     document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No data for '+symbol+'.</div>';
     return;
