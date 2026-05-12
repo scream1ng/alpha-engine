@@ -9,7 +9,7 @@ Strategies: Pivot Breakout, Trendline Breakout, Pullback Buy, Reversal, BB Squee
 ## Workflow (monthly cadence)
 
 ```
-regime  →  regime-optimise  →  chart-export
+regime  →  optimise  →  stability  →  report  →  chart-export
 ```
 
 Run everything in one command:
@@ -22,7 +22,9 @@ Or step by step:
 
 ```bash
 python run.py th regime           # 5yr regime discovery
-python run.py th regime-optimise  # exit-param optimisation on PASS pairs
+python run.py th optimise         # exit-param optimisation on PASS pairs
+python run.py th stability        # regime-window stability report for winners
+python run.py th report           # print combined research summary
 python run.py th chart-export     # export results to web viewer
 ```
 
@@ -73,8 +75,8 @@ chart-export generates docs/chart_data.json
 
 Two details that matter:
 
-- `regime` and `regime-optimise` must use the same saved regime boundaries (read from DB).
-- `chart-export` uses optimised params from DB — always run `regime-optimise` before `chart-export`.
+- `regime` and `optimise` must use the same saved regime boundaries (read from DB).
+- `chart-export` uses optimised params from DB — always run `optimise` before `chart-export`.
 
 ## Optimisation grid
 

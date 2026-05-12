@@ -606,110 +606,212 @@ def _export_regime_markdown(
     return str(latest_path)
 
 
-def cmd_regime_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    """Print saved regime discovery results from DB."""
-    from collections import defaultdict
-    from db.models import SessionLocal, RegimeMapModel
-    from core.regime import REGIMES
+def _print_saved_report(path: str, missing_hint: str) -> None:
+    from pathlib import Path
 
-    market = adapter.market_id
+    report_path = Path(path)
+    if not report_path.exists():
+        print(f"  {missing_hint}")
+        return
+    print()
+    print(report_path.read_text(encoding="utf-8"))
+
+
+def _parse_stability_winners(path: str) -> list[dict]:
+    from pathlib import Path
+
+    report_path = Path(path)
+    if not report_path.exists():
+        return []
+
+    lines = report_path.read_text(encoding="utf-8").splitlines()
+    rows: list[dict] = []
+    in_table = False
+    for line in lines:
+        if line.strip() == "## Optimised Winners":
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if not line.strip():
+            if rows:
+                break
+            continue
+        if not line.startswith("|"):
+            continue
+        if line.startswith("| Strategy |") or line.startswith("|---|"):
+            continue
+        parts = [part.strip() for part in line.strip().strip("|").split("|")]
+        if len(parts) != 11:
+            continue
+        rows.append({
+            "strategy": parts[0],
+            "regime": parts[1],
+            "base_cal": float(parts[2]),
+            "opt_cal": float(parts[3]),
+            "episodes": int(parts[4]),
+            "active": int(parts[5]),
+            "positive": int(parts[6]),
+            "median_episode": parts[7],
+            "worst_episode": parts[8],
+            "best_share": parts[9],
+            "verdict": parts[10],
+        })
+    return rows
+
+
+def _export_research_report(market: str, as_of) -> str:
+    from pathlib import Path
+    from datetime import datetime
+    from db.models import SessionLocal, RegimeMapModel, RegimeOptimiseModel
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    latest_path = Path("reports") / f"{market}_report_latest.md"
+    history_path = Path("reports") / "history" / f"{timestamp}_{market}_report.md"
+
+    stability_rows = _parse_stability_winners(f"reports/{market}_stability_latest.md")
+
     db = SessionLocal()
     try:
-        rows = db.query(RegimeMapModel).filter_by(market=market).all()
+        pass_rows = db.query(RegimeMapModel).filter_by(market=market, acceptable=True).all()
+        opt_rows = db.query(RegimeOptimiseModel).filter_by(market=market).all()
     finally:
         db.close()
 
-    if not rows:
-        print("  No regime data. Run regime first.")
-        return
+    opt_map = {(row.strategy, row.regime): row for row in opt_rows}
+    approved = [row for row in stability_rows if row["verdict"] == "stable"]
+    watchlist = [row for row in stability_rows if row["verdict"] == "mixed"]
+    rejected = [row for row in stability_rows if row["verdict"] == "fragile"]
 
-    last_eval = rows[0].evaluated_at
-    all_years = sorted({int(y) for r in rows for y in (r.yearly or {}).keys()})
-    YC        = 11
-    WC        = 7
-    CC        = 8
-    RC        = 7
-    DC        = 7
-    WP        = 4 + 22 + 2 + WC + 2 + CC + 2 + RC + 2 + DC + 2 + len(all_years) * (YC + 2)
-    W         = WP + 13
-
-    print("\n" + "=" * W)
-    print(f"  {market.upper()} REGIME REPORT  |  Last evaluated: {last_eval}")
-    print("=" * W)
-
-    by_regime: dict[str, list] = defaultdict(list)
-    for r in rows:
-        by_regime[r.regime].append(r)
-
-    year_hdr = "  ".join(f"{y:>{YC}}" for y in all_years)
-
-    for regime in REGIMES:
-        regime_rows = by_regime.get(regime, [])
-        print("\n" + "=" * WP)
-        print(f"  {regime.upper()}")
-        print("=" * WP)
-        print(f"  {'Strategy':<22}  {'WR':>{WC}}  {'Calmar':>{CC}}  {'Ret%':>{RC}}  {'DD':>{DC}}  {year_hdr}")
-        print("  " + "-" * (WP - 4))
-        for row in regime_rows:
-            edge    = "✓" if row.acceptable else "✗"
-            wr_str  = f"{row.wr:.0f}%{edge}" if row.wr is not None else "—"
-            cal_str = f"{row.calmar:.2f}" if row.calmar is not None else "—"
-            ann_ret = (row.calmar or 0.0) * (row.max_dd or 0.0)
-            ret_str = f"{ann_ret:+.1f}%"
-            dd_str  = f"{row.max_dd:.1f}%" if row.max_dd is not None else "—"
-            yearly  = row.yearly or {}
-            year_cols = [_fmt_regime_cell(yearly.get(str(y)), YC) for y in all_years]
-            print(f"  {row.strategy:<22}  {wr_str:>{WC}}  {cal_str:>{CC}}  {ret_str:>{RC}}  {dd_str:>{DC}}  {'  '.join(year_cols)}")
-
-    regime_results = [
-        {
-            "strategy":    r.strategy,
-            "regime":      r.regime,
-            "wr":          r.wr or 0.0,
-            "calmar":      r.calmar or 0.0,
-            "annual_ret":  (r.calmar or 0.0) * (r.max_dd or 0.0),
-            "max_dd":      r.max_dd or 0.0,
-            "trade_count": r.trade_count or 0,
-            "yearly":      r.yearly or {},
-            "acceptable":  r.acceptable,
-        }
-        for r in rows
+    lines = [
+        f"# {market.upper()} Research Report",
+        "",
+        f"- As of: `{as_of}`",
+        f"- Saved regime winners: `{len(pass_rows)}`",
+        f"- Saved optimised winners: `{len(opt_rows)}`",
+        f"- Stability-reviewed winners: `{len(stability_rows)}`",
+        "",
+        "## Current Conclusion",
+        "",
     ]
-    _print_regime_summary(regime_results, all_years, W, YC)
 
-    # ── ACTIVE PARAMS (from regime-optimise) ──────────────────────────────
-    from db.models import RegimeOptimiseModel
-    opt_db = SessionLocal()
-    try:
-        opt_rows = opt_db.query(RegimeOptimiseModel).filter_by(market=market).all()
-    finally:
-        opt_db.close()
-
-    if opt_rows:
-        print("\n" + "=" * W)
-        print("  ACTIVE PARAMS  (best combo from regime-optimise)")
-        print("=" * W)
-        for opt in sorted(opt_rows, key=lambda r: r.strategy):
-            p = opt.params or {}
-            tp1_pct = int(p.get("tp1_partial_pct", 1.0) * 100)
-            tp2_mult = p.get("tp2_atr_mult", 999.0)
-            tp2_pct  = int(p.get("tp2_partial_pct", 0.0) * 100)
-            ema      = p.get("ema_exit_period", 0)
-            sl_mult  = p.get("sl_atr_mult", 1.5)
-            tp1_mult = p.get("tp1_atr_mult", 3.0)
-            rvol     = p.get("rvol_min", 0.0)
-            combo    = opt.best_combo or "—"
-
-            tp_desc = f"TP1={tp1_mult:.1f}×ATR {tp1_pct}%"
-            if tp2_mult < 900:
-                tp_desc += f"  TP2={tp2_mult:.1f}×ATR {tp2_pct}%"
-            if ema:
-                tp_desc += f"  EMA{ema}-exit"
-            rvol_desc = f"  rvol≥{rvol:.1f}" if rvol > 0 else "  no-rvol-filter"
-            print(f"  {opt.strategy:<22}  {opt.regime:<12}  combo={combo:<28}  SL={sl_mult:.1f}×ATR  {tp_desc}{rvol_desc}")
-        print("=" * W)
+    if approved:
+        lines.append(f"- Approved now: `{', '.join(f'{row['strategy']}|{row['regime']}' for row in approved)}`")
     else:
-        print("\n  (no regime-optimise results — run regime-optimise first)")
+        lines.append("- Approved now: `_none_`")
+    if watchlist:
+        lines.append(f"- Watchlist: `{', '.join(f'{row['strategy']}|{row['regime']}' for row in watchlist)}`")
+    else:
+        lines.append("- Watchlist: `_none_`")
+    unstable_regimes = sorted({row["regime"] for row in rejected})
+    lines.append(
+        "- Interpretation: "
+        + (
+            "current robust edge is concentrated in downtrend; uptrend and choppy are not approved yet."
+            if unstable_regimes
+            else "approved winners are holding across the reviewed regime episodes."
+        )
+    )
+
+    lines.extend([
+        "",
+        "## Approved",
+        "",
+    ])
+    if approved:
+        for row in approved:
+            opt = opt_map.get((row["strategy"], row["regime"]))
+            combo = opt.best_combo if opt and opt.best_combo else "—"
+            lines.append(
+                f"- `{row['strategy']} | {row['regime']}` — verdict=`{row['verdict']}` "
+                f"opt-cal=`{row['opt_cal']:.2f}` active=`{row['active']}/{row['episodes']}` "
+                f"median-ep=`{row['median_episode']}` worst-ep=`{row['worst_episode']}` combo=`{combo}`"
+            )
+    else:
+        lines.append("_None._")
+
+    lines.extend([
+        "",
+        "## Watchlist",
+        "",
+    ])
+    if watchlist:
+        for row in watchlist:
+            opt = opt_map.get((row["strategy"], row["regime"]))
+            combo = opt.best_combo if opt and opt.best_combo else "—"
+            lines.append(
+                f"- `{row['strategy']} | {row['regime']}` — verdict=`{row['verdict']}` "
+                f"opt-cal=`{row['opt_cal']:.2f}` active=`{row['active']}/{row['episodes']}` "
+                f"median-ep=`{row['median_episode']}` worst-ep=`{row['worst_episode']}` combo=`{combo}`"
+            )
+    else:
+        lines.append("_None._")
+
+    lines.extend([
+        "",
+        "## Rejected For Now",
+        "",
+    ])
+    if rejected:
+        for row in rejected:
+            lines.append(
+                f"- `{row['strategy']} | {row['regime']}` — verdict=`{row['verdict']}` "
+                f"opt-cal=`{row['opt_cal']:.2f}` best-share=`{row['best_share']}` "
+                f"median-ep=`{row['median_episode']}`"
+            )
+    else:
+        lines.append("_None._")
+
+    lines.extend([
+        "",
+        "## Next Step",
+        "",
+        "- Run `chart-export` and inspect the approved list first, then the watchlist.",
+        "- Compare best and worst regime episodes before changing strategy rules again.",
+        "",
+        "## Sources",
+        "",
+        f"- `reports/{market}_regime_latest.md`",
+        f"- `reports/{market}_optimise_latest.md`",
+        f"- `reports/{market}_stability_latest.md`",
+    ])
+
+    content = "\n".join(lines) + "\n"
+    for path in (latest_path, history_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    return str(latest_path)
+
+
+def cmd_regime_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Print the latest saved regime markdown report."""
+    market = adapter.market_id
+    _print_saved_report(
+        f"reports/{market}_regime_latest.md",
+        "No saved regime report. Run regime first.",
+    )
+
+
+def cmd_optimise_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Print the latest saved regime-optimise markdown report with full grid results."""
+    market = adapter.market_id
+    _print_saved_report(
+        f"reports/{market}_optimise_latest.md",
+        "No saved optimise report. Run regime-optimise first.",
+    )
+
+
+def cmd_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Build and print the latest research summary report."""
+    market = adapter.market_id
+    report_path = _export_research_report(market, date.today())
+    _write_run_log(
+        market,
+        "report",
+        [f"rebuilt `reports/{market}_report_latest.md` from latest regime, optimise, and stability artifacts"],
+        next_step="chart-export, then inspect approved and watchlist pairs visually",
+    )
+    _print_saved_report(report_path, "No saved report.")
 
 
 def cmd_optimise_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
@@ -1054,6 +1156,363 @@ def _export_optimise_regime_markdown(results: list[dict], market: str, as_of) ->
     print(f"\n  Markdown: {latest_path}")
 
 
+def _build_regime_episodes(label_rows: list) -> dict[str, list[dict]]:
+    from core.regime import REGIMES
+
+    episodes: dict[str, list[dict]] = {regime: [] for regime in REGIMES}
+    if not label_rows:
+        return episodes
+
+    ordered = sorted(label_rows, key=lambda row: row.date)
+    current_regime = ordered[0].regime
+    start_date = ordered[0].date
+    end_date = ordered[0].date
+    bars = 1
+
+    def _flush(regime: str, start, end, count: int) -> None:
+        idx = len(episodes[regime]) + 1
+        episodes[regime].append({
+            "label": f"{regime[:2]}{idx}",
+            "regime": regime,
+            "start_date": start,
+            "end_date": end,
+            "bars": count,
+        })
+
+    for row in ordered[1:]:
+        if row.regime == current_regime:
+            end_date = row.date
+            bars += 1
+            continue
+        _flush(current_regime, start_date, end_date, bars)
+        current_regime = row.regime
+        start_date = row.date
+        end_date = row.date
+        bars = 1
+
+    _flush(current_regime, start_date, end_date, bars)
+    return episodes
+
+
+def _episode_rows_from_trades(
+    trades: list[dict],
+    episodes: list[dict],
+    capital: float,
+) -> list[dict]:
+    rows = []
+    for episode in episodes:
+        episode_trades = [
+            t for t in trades
+            if episode["start_date"] <= t["entry_date"] <= episode["end_date"]
+        ]
+        ret_pct = sum(float(t["pnl"]) for t in episode_trades) / capital * 100 if episode_trades else 0.0
+        win_count = sum(1 for t in episode_trades if float(t["pnl"]) > 0)
+        trade_count = len(episode_trades)
+        rows.append({
+            **episode,
+            "trade_count": trade_count,
+            "ret_pct": round(ret_pct, 2),
+            "win_rate": round(win_count / trade_count * 100, 1) if trade_count else None,
+        })
+    return rows
+
+
+def _stability_summary(
+    strategy: str,
+    regime: str,
+    episode_rows: list[dict],
+) -> dict:
+    import statistics
+
+    active = [row for row in episode_rows if row["trade_count"] > 0]
+    active_rets = [row["ret_pct"] for row in active]
+    total_ret = round(sum(active_rets), 2)
+    best_ret = max(active_rets) if active_rets else 0.0
+    worst_ret = min(active_rets) if active_rets else 0.0
+    median_ret = statistics.median(active_rets) if active_rets else 0.0
+    positive_count = sum(1 for value in active_rets if value > 0)
+    episode_count = len(episode_rows)
+    active_count = len(active)
+    active_ratio = active_count / episode_count if episode_count else 0.0
+    positive_ratio = positive_count / active_count if active_count else 0.0
+    best_share = (best_ret / total_ret * 100.0) if total_ret > 0 and best_ret > 0 else None
+    total_trades = sum(row["trade_count"] for row in active)
+
+    if active_count == 0 or total_trades == 0:
+        verdict = "inactive"
+    elif total_ret <= 0:
+        verdict = "fragile"
+    elif positive_ratio >= 0.60 and median_ret >= 0 and (best_share is None or best_share <= 70):
+        verdict = "stable"
+    elif positive_ratio >= 0.50 and median_ret >= -1.0 and (best_share is None or best_share <= 100):
+        verdict = "mixed"
+    else:
+        verdict = "fragile"
+
+    return {
+        "strategy": strategy,
+        "regime": regime,
+        "episode_count": episode_count,
+        "active_episode_count": active_count,
+        "positive_episode_count": positive_count,
+        "active_episode_ratio": round(active_ratio * 100, 1),
+        "positive_episode_ratio": round(positive_ratio * 100, 1),
+        "total_ret_pct": total_ret,
+        "median_episode_ret_pct": round(median_ret, 2),
+        "best_episode_ret_pct": round(best_ret, 2),
+        "worst_episode_ret_pct": round(worst_ret, 2),
+        "best_episode_share_pct": round(best_share, 1) if best_share is not None else None,
+        "trade_count": total_trades,
+        "verdict": verdict,
+        "episodes": episode_rows,
+    }
+
+
+def _export_stability_markdown(
+    market: str,
+    as_of,
+    regime_episode_counts: dict[str, int],
+    baseline_rows: list[dict],
+    optimised_rows: list[dict],
+) -> str:
+    from pathlib import Path
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    latest_path = Path("reports") / f"{market}_stability_latest.md"
+    history_path = Path("reports") / "history" / f"{timestamp}_{market}_stability.md"
+
+    shortlist = [row for row in optimised_rows if row["verdict"] in {"stable", "mixed"}]
+    lines = [
+        f"# {market.upper()} Stability Report",
+        "",
+        f"- As of: `{as_of}`",
+        f"- Regime episodes: `uptrend={regime_episode_counts.get('uptrend', 0)}` "
+        f"`choppy={regime_episode_counts.get('choppy', 0)}` "
+        f"`downtrend={regime_episode_counts.get('downtrend', 0)}`",
+        f"- Baseline pairs reviewed: `{len(baseline_rows)}`",
+        f"- Optimised pairs reviewed: `{len(optimised_rows)}`",
+        "",
+        "## Shortlist",
+        "",
+    ]
+
+    if shortlist:
+        for row in sorted(shortlist, key=lambda item: (item["verdict"] != "stable", -item["total_ret_pct"])):
+            share = f"{row['best_episode_share_pct']:.0f}%" if row["best_episode_share_pct"] is not None else "—"
+            lines.append(
+                f"- `{row['strategy']} | {row['regime']}` — verdict=`{row['verdict']}` "
+                f"episodes=`{row['positive_episode_count']}/{row['active_episode_count']}` "
+                f"median=`{row['median_episode_ret_pct']:+.1f}%` worst=`{row['worst_episode_ret_pct']:+.1f}%` "
+                f"best-share=`{share}`"
+            )
+    else:
+        lines.append("_No optimised pairs cleared the stability shortlist yet._")
+
+    lines.extend([
+        "",
+        "## Optimised Winners",
+        "",
+        "| Strategy | Regime | Base Cal | Opt Cal | Episodes | Active | Pos | Median Ep | Worst Ep | Best Share | Verdict |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+    ])
+    for row in sorted(optimised_rows, key=lambda item: (item["verdict"] != "stable", -item["opt_calmar"], -item["total_ret_pct"])):
+        share = f"{row['best_episode_share_pct']:.0f}%" if row["best_episode_share_pct"] is not None else "—"
+        lines.append(
+            f"| {row['strategy']} | {row['regime']} | {row['base_calmar']:.2f} | {row['opt_calmar']:.2f} | "
+            f"{row['episode_count']} | {row['active_episode_count']} | {row['positive_episode_count']} | "
+            f"{row['median_episode_ret_pct']:+.1f}% | {row['worst_episode_ret_pct']:+.1f}% | {share} | {row['verdict']} |"
+        )
+
+    lines.extend([
+        "",
+        "## Baseline Map",
+        "",
+        "| Strategy | Regime | Calmar | Episodes | Active | Pos | Median Ep | Worst Ep | Best Share | Verdict |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ])
+    for row in sorted(baseline_rows, key=lambda item: (item["regime"], item["verdict"] != "stable", -item["baseline_calmar"], -item["total_ret_pct"])):
+        share = f"{row['best_episode_share_pct']:.0f}%" if row["best_episode_share_pct"] is not None else "—"
+        lines.append(
+            f"| {row['strategy']} | {row['regime']} | {row['baseline_calmar']:.2f} | {row['episode_count']} | "
+            f"{row['active_episode_count']} | {row['positive_episode_count']} | {row['median_episode_ret_pct']:+.1f}% | "
+            f"{row['worst_episode_ret_pct']:+.1f}% | {share} | {row['verdict']} |"
+        )
+
+    for row in sorted(optimised_rows, key=lambda item: (item["verdict"] != "stable", -item["opt_calmar"], -item["total_ret_pct"])):
+        lines.extend([
+            "",
+            f"## {row['strategy']} | {row['regime']}",
+            "",
+            f"- Base calmar: `{row['base_calmar']:.2f}`",
+            f"- Optimised calmar: `{row['opt_calmar']:.2f}`",
+            f"- Verdict: `{row['verdict']}`",
+            f"- Active episodes: `{row['active_episode_count']}/{row['episode_count']}`",
+            "",
+            "| Episode | Dates | Bars | Trades | Ret% | WR |",
+            "|---|---|---|---|---|---|",
+        ])
+        for episode in row["episodes"]:
+            wr = f"{episode['win_rate']:.0f}%" if episode["win_rate"] is not None else "—"
+            lines.append(
+                f"| `{episode['label']}` | `{episode['start_date']}` → `{episode['end_date']}` | "
+                f"{episode['bars']} | {episode['trade_count']} | {episode['ret_pct']:+.1f}% | {wr} |"
+            )
+
+    lines.extend([
+        "",
+        "## AI Suggestions",
+        "",
+        "- Promote pairs with `stable` verdict first; `mixed` pairs need chart review before trust.",
+        "- Drop pairs where one episode explains most of the total return; that is concentrated edge, not stability.",
+        "- Use `chart-export` after this report to inspect the stable shortlist visually.",
+        "",
+    ])
+
+    content = "\n".join(lines) + "\n"
+    for path in (latest_path, history_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    return str(latest_path)
+
+
+def cmd_stability_report(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Evaluate regime-specific stability across separate benchmark regime episodes."""
+    import strategies  # noqa: F401
+    from core.registry import StrategyRegistry
+    from core.regime import REGIMES
+    from validation.backtest import run_portfolio_backtest, _precompute_indicators
+    from db.models import SessionLocal, RegimeLabelModel, RegimeMapModel, RegimeOptimiseModel
+
+    market = adapter.market_id
+    today = date.today()
+    y5_start = today - timedelta(days=1825)
+
+    db = SessionLocal()
+    try:
+        label_rows = db.query(RegimeLabelModel).filter_by(market=market).all()
+        map_rows = db.query(RegimeMapModel).filter_by(market=market).all()
+        opt_rows = db.query(RegimeOptimiseModel).filter_by(market=market).all()
+    finally:
+        db.close()
+
+    if not label_rows or not map_rows:
+        print("  No regime data. Run regime first.")
+        return
+
+    episode_map = _build_regime_episodes(label_rows)
+    regime_episode_counts = {regime: len(episode_map.get(regime, [])) for regime in REGIMES}
+    if not any(regime_episode_counts.values()):
+        print("  No regime episodes available. Run regime first.")
+        return
+
+    bm_close = _fetch_benchmark(adapter, y5_start, today)
+    if bm_close is None:
+        print("  ERROR: no benchmark data.")
+        return
+
+    universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
+    print(f"\n  Fetching {len(universe)} symbols (5yr) ...", flush=True)
+    all_dfs = []
+    for idx, symbol in enumerate(universe, 1):
+        print(f"  [{idx}/{len(universe)}] {symbol}", flush=True)
+        df = adapter.ohlcv(symbol, y5_start, today)
+        df = _attach_benchmark(df, bm_close)
+        if df.empty or len(df) < 60:
+            continue
+        df.attrs = {"symbol": symbol, "market": market}
+        pdf = _precompute_indicators(df)
+        pdf.attrs = {"symbol": symbol, "market": market}
+        all_dfs.append(pdf)
+
+    if not all_dfs:
+        print("  No data fetched.")
+        return
+
+    strategies_map = StrategyRegistry.for_market(market)
+    regime_map = {(row.strategy, row.regime): row for row in map_rows}
+
+    print("\n  Running baseline stability checks ...", flush=True)
+    baseline_rows = []
+    for strategy_id, strategy_cls in strategies_map.items():
+        try:
+            result = run_portfolio_backtest(
+                all_dfs,
+                strategy_cls(),
+                {**strategy_cls().default_params, **_REGIME_DISCOVERY_PARAMS},
+                initial_capital=args.capital,
+            )
+            trades = result.get("trades", [])
+        except Exception as exc:
+            logger.warning("stability baseline error %s: %s", strategy_id, exc)
+            trades = []
+
+        for regime in REGIMES:
+            episode_rows = _episode_rows_from_trades(trades, episode_map.get(regime, []), args.capital)
+            summary = _stability_summary(strategy_id, regime, episode_rows)
+            base_row = regime_map.get((strategy_id, regime))
+            summary["baseline_calmar"] = round(float(base_row.calmar or 0), 2) if base_row else 0.0
+            baseline_rows.append(summary)
+
+    print("\n  Running optimised winner stability checks ...", flush=True)
+    optimised_rows = []
+    for opt in opt_rows:
+        strategy_cls = strategies_map.get(opt.strategy)
+        if strategy_cls is None:
+            continue
+        try:
+            result = run_portfolio_backtest(
+                all_dfs,
+                strategy_cls(),
+                dict(opt.params or {}),
+                initial_capital=args.capital,
+            )
+            trades = result.get("trades", [])
+        except Exception as exc:
+            logger.warning("stability optimise error %s|%s: %s", opt.strategy, opt.regime, exc)
+            trades = []
+
+        episode_rows = _episode_rows_from_trades(trades, episode_map.get(opt.regime, []), args.capital)
+        summary = _stability_summary(opt.strategy, opt.regime, episode_rows)
+        base_row = regime_map.get((opt.strategy, opt.regime))
+        summary["base_calmar"] = round(float(base_row.calmar or 0), 2) if base_row else 0.0
+        summary["opt_calmar"] = round(float(opt.is_calmar or 0), 2)
+        summary["best_combo"] = opt.best_combo or ""
+        optimised_rows.append(summary)
+
+    report_path = _export_stability_markdown(
+        market=market,
+        as_of=today,
+        regime_episode_counts=regime_episode_counts,
+        baseline_rows=baseline_rows,
+        optimised_rows=optimised_rows,
+    )
+
+    summary_lines = []
+    shortlist = [row for row in optimised_rows if row["verdict"] in {"stable", "mixed"}]
+    summary_lines.append(
+        "episodes: "
+        + ", ".join(f"{regime}={regime_episode_counts.get(regime, 0)}" for regime in REGIMES)
+    )
+    if shortlist:
+        for row in sorted(shortlist, key=lambda item: (item["verdict"] != "stable", -item["opt_calmar"])):
+            summary_lines.append(
+                f"{row['strategy']}|{row['regime']}: verdict={row['verdict']} "
+                f"active={row['active_episode_count']}/{row['episode_count']} "
+                f"median={row['median_episode_ret_pct']:+.1f}% "
+                f"worst={row['worst_episode_ret_pct']:+.1f}%"
+            )
+    else:
+        summary_lines.append("no optimised pairs passed the stability shortlist")
+    _write_run_log(
+        market,
+        "stability-report",
+        summary_lines,
+        next_step="chart-export on stable shortlist, then inspect best and worst regime episodes",
+    )
+    print(f"\n  Markdown: {report_path}")
+
+
 def _rule_based_suggestions(results: list[dict]) -> list[str]:
     """Generate actionable next-step bullets from regime-optimise results."""
     lines = []
@@ -1115,13 +1574,122 @@ def _rule_based_suggestions(results: list[dict]) -> list[str]:
     return lines
 
 
+def _write_agent_snapshot(
+    market: str,
+    command: str,
+    summary_lines: list[str],
+    next_step: str | None,
+    timestamp: str,
+    pass_rows: list,
+    opt_map: dict,
+    entry_map: dict,
+) -> None:
+    from pathlib import Path
+
+    reports_dir = Path("reports")
+    review_files = [
+        "CLAUDE.md",
+        str(reports_dir / "run_log.md"),
+        str(reports_dir / "agent_context.md"),
+        str(reports_dir / "agent_state.json"),
+    ]
+    for suffix in ("regime", "optimise", "stability", "report", "chart_export"):
+        path = reports_dir / f"{market}_{suffix}_latest.md"
+        if path.exists():
+            review_files.append(str(path))
+
+    current_best = []
+    for row in sorted(pass_rows, key=lambda x: -(x.calmar or 0)):
+        opt = opt_map.get((row.strategy, row.regime))
+        ent = entry_map.get((row.strategy, row.regime))
+        current_best.append({
+            "strategy": row.strategy,
+            "regime": row.regime,
+            "base_calmar": round(float(row.calmar or 0), 2),
+            "opt_calmar": round(float(opt.is_calmar or 0), 2) if opt and opt.is_calmar is not None else None,
+            "opt_ret_ann_pct": round(float(opt.is_annual_return or 0) * 100, 1) if opt and opt.is_annual_return is not None else None,
+            "max_dd_pct": round(float(row.max_dd or 0), 1) if row.max_dd is not None else None,
+            "best_combo": opt.best_combo if opt and opt.best_combo else None,
+            "entry_mode": ent.best_entry if ent else None,
+        })
+
+    state = {
+        "generated_at": timestamp,
+        "market": market,
+        "last_command": command,
+        "next_step": next_step,
+        "summary_lines": summary_lines,
+        "review_files": review_files,
+        "current_best": current_best,
+    }
+    (reports_dir / "agent_state.json").write_text(
+        json.dumps(state, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    md_lines = [
+        "# Agent Context",
+        "",
+        f"- Generated: `{timestamp}`",
+        f"- Market: `{market}`",
+        f"- Last command: `{command}`",
+        f"- Next step: `{next_step or 'review latest report'}`",
+        "",
+        "## Required Reads",
+        "",
+        "- `CLAUDE.md`",
+        "- `reports/run_log.md`",
+        "- `reports/agent_state.json`",
+    ]
+    for path in review_files[4:]:
+        md_lines.append(f"- `{path}`")
+
+    md_lines.extend([
+        "",
+        "## Last Run Summary",
+        "",
+    ])
+    md_lines.extend(f"- {line}" for line in summary_lines)
+    md_lines.extend([
+        "",
+        "## Current Best",
+        "",
+        "| Strategy | Regime | Base Cal | Opt Cal | Ret%ann | DD | Combo | Entry |",
+        "|---|---|---|---|---|---|---|---|",
+    ])
+
+    if current_best:
+        for row in current_best:
+            opt_cal = f"{row['opt_calmar']:.2f}" if row["opt_calmar"] is not None else "—"
+            opt_ret = f"{row['opt_ret_ann_pct']:+.1f}%" if row["opt_ret_ann_pct"] is not None else "—"
+            dd = f"{row['max_dd_pct']:.1f}%" if row["max_dd_pct"] is not None else "—"
+            combo = f"`{row['best_combo']}`" if row["best_combo"] else "—"
+            entry = row["entry_mode"] or "—"
+            md_lines.append(
+                f"| {row['strategy']} | {row['regime']} | {row['base_calmar']:.2f} | "
+                f"{opt_cal} | {opt_ret} | {dd} | {combo} | {entry} |"
+            )
+    else:
+        md_lines.append("| _none_ | | | | | | | |")
+
+    md_lines.extend([
+        "",
+        "## Working Rules",
+        "",
+        "- Start every session by reading the files above before changing code.",
+        "- After each pipeline run, compare the newest `_latest.md` report with the previous file in `reports/history/`.",
+        "- Use `reports/run_log.md` as the human narrative and `reports/agent_state.json` as the machine-readable checkpoint.",
+    ])
+    (reports_dir / "agent_context.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
+
+
 def _write_run_log(
     market: str,
     command: str,
     summary_lines: list[str],
     next_step: str | None = None,
 ) -> None:
-    """Rebuild run_log.md: Current Best from DB at top + prepend new history entry."""
+    """Rebuild run_log.md and companion agent snapshot from DB + latest run summary."""
     from pathlib import Path
     from datetime import datetime
     from db.models import SessionLocal, RegimeMapModel, RegimeOptimiseModel, RegimeEntryModel
@@ -1184,6 +1752,16 @@ def _write_run_log(
     full    = f"# Alpha Engine — Run Log\n\n{header}\n\n---\n\n{history}\n"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(full, encoding="utf-8")
+    _write_agent_snapshot(
+        market=market,
+        command=command,
+        summary_lines=summary_lines,
+        next_step=next_step,
+        timestamp=timestamp,
+        pass_rows=pass_rows,
+        opt_map=opt_map,
+        entry_map=entry_map,
+    )
     logger.info("run log updated: %s", log_path)
 
 
@@ -1762,23 +2340,105 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     total_syms = len(ohlcv_cache)
     total_trades = sum(len(s["trades"]) for st in strategies_out for s in st["symbols"])
     print(f"\n  {len(strategies_out)} strategies · {total_syms} symbols · {total_trades} trades → {out_path}")
+    _export_chart_export_markdown(
+        market=market,
+        as_of=today,
+        current_regime=current_regime,
+        strategies_out=strategies_out,
+        total_symbols=total_syms,
+        total_trades=total_trades,
+        output_path=out_path,
+    )
+    _write_run_log(
+        market,
+        "chart-export",
+        [
+            f"exported {len(strategies_out)} strategy-regime pairs to `docs/chart_data.json`",
+            f"symbols={total_syms} trades={total_trades} current_regime={current_regime}",
+        ],
+        next_step="serve viewer and inspect charts for rule fidelity",
+    )
     print("  Serve: python -m http.server 8080 --directory docs")
 
 
+def _export_chart_export_markdown(
+    market: str,
+    as_of,
+    current_regime: str,
+    strategies_out: list[dict],
+    total_symbols: int,
+    total_trades: int,
+    output_path: str,
+) -> None:
+    from pathlib import Path
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    latest_path = Path("reports") / f"{market}_chart_export_latest.md"
+    history_path = Path("reports") / "history" / f"{timestamp}_{market}_chart_export.md"
+
+    lines = [
+        f"# {market.upper()} Chart Export",
+        "",
+        f"- As of: `{as_of}`",
+        f"- Current regime: `{current_regime}`",
+        f"- Strategy-regime pairs exported: `{len(strategies_out)}`",
+        f"- Symbols exported: `{total_symbols}`",
+        f"- Trades exported: `{total_trades}`",
+        f"- Output: `{output_path}`",
+        "",
+        "## Exported Strategies",
+        "",
+        "| Strategy | Regime | Combo | Calmar | Ret% | DD | Symbols | Trades |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+
+    for row in sorted(strategies_out, key=lambda x: -(x.get("calmar") or 0)):
+        symbol_count = len(row.get("symbols") or [])
+        trade_count = sum(s.get("trade_count", 0) for s in row.get("symbols") or [])
+        lines.append(
+            f"| {row['id']} | {row['regime']} | `{row.get('combo') or ''}` | "
+            f"{row.get('calmar', 0):.2f} | {row.get('ret_pct', 0):+.1f}% | "
+            f"{row.get('max_dd', 0):.1f}% | {symbol_count} | {trade_count} |"
+        )
+
+    lines.extend([
+        "",
+        "## AI Suggestions",
+        "",
+        "- Compare the viewer against the latest optimise winners and confirm exits match the chosen combo labels.",
+        "- Inspect top-PnL and worst-PnL symbols first; chart fidelity problems usually show up there.",
+        "- If a chart looks wrong, trace the pair back to `reports/run_log.md`, then `reports/history/` for the prior optimise run.",
+        "",
+    ])
+
+    content = "\n".join(lines) + "\n"
+    for path in (latest_path, history_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+
 def cmd_run_all(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    """Full pipeline: regime → regime-optimise → chart-export."""
-    _banner = lambda n, t: print(f"\n{'='*60}\n  STEP {n}/3 — {t}\n{'='*60}")
+    """Full pipeline: regime → optimise → stability → report → chart-export."""
+    _banner = lambda n, t: print(f"\n{'='*60}\n  STEP {n}/5 — {t}\n{'='*60}")
     _banner(1, "regime");          cmd_regime(adapter, args)
-    _banner(2, "regime-optimise"); cmd_optimise_regime(adapter, args)
-    _banner(3, "chart-export");    cmd_chart_export(adapter, args)
+    _banner(2, "optimise");        cmd_optimise_regime(adapter, args)
+    _banner(3, "stability");       cmd_stability_report(adapter, args)
+    _banner(4, "report");          cmd_report(adapter, args)
+    _banner(5, "chart-export");    cmd_chart_export(adapter, args)
 
 
 def run(adapter: MarketAdapter, command: str, args: argparse.Namespace) -> None:
     dispatch = {
         "run-all":        lambda: cmd_run_all(adapter, args),
         "regime":         lambda: cmd_regime(adapter, args),
+        "optimise":       lambda: cmd_optimise_regime(adapter, args),
+        "stability":      lambda: cmd_stability_report(adapter, args),
+        "report":         lambda: cmd_report(adapter, args),
         "regime-report":  lambda: cmd_regime_report(adapter, args),
+        "optimise-report":lambda: cmd_optimise_report(adapter, args),
         "regime-optimise":lambda: cmd_optimise_regime(adapter, args),
+        "stability-report":lambda: cmd_stability_report(adapter, args),
         "chart-export":   lambda: cmd_chart_export(adapter, args),
         "intraday-entry-test":       lambda: cmd_intraday_entry_test(adapter, args),
         "intraday-fakeout-study":    lambda: cmd_intraday_fakeout_study(adapter, args),

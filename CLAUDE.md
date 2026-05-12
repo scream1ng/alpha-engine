@@ -9,11 +9,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 python run.py
 
 # CLI (non-interactive)
-python run.py th run-all          # full monthly pipeline (regime → optimise → chart-export)
+python run.py th run-all          # full research pipeline (regime → optimise → stability → report → chart-export)
 python run.py th regime           # step 1 only
-python run.py th regime-optimise  # step 2 only
-python run.py th chart-export     # step 3 only — regenerates docs/chart_data.json
-python run.py th regime-report    # instant view of last regime result
+python run.py th optimise         # step 2 only
+python run.py th stability        # regime-window stability check on baseline + optimised pairs
+python run.py th report           # build combined research summary
+python run.py th chart-export     # final export — regenerates docs/chart_data.json
 python run.py th serve            # start local web viewer on http://localhost:8000
 
 # Always set encoding on Windows (Thai locale cp874 breaks Unicode arrows)
@@ -24,7 +25,7 @@ pytest tests/
 pytest tests/test_research.py::test_label_regime   # single test
 ```
 
-Available commands: `run-all`, `regime`, `regime-optimise`, `regime-report`, `chart-export`, `serve`
+Available commands: `run-all`, `regime`, `optimise`, `stability`, `report`, `chart-export`, `serve`
 
 ## Session Start
 
@@ -37,14 +38,18 @@ Use it to understand current best params, what has been tested, and what directi
 ## Pipeline (monthly cadence)
 
 ```
-run-all  ≡  regime  →  regime-optimise  →  chart-export
+run-all  ≡  regime  →  optimise  →  stability  →  report  →  chart-export
 ```
 
 1. **`regime`** — 5yr backtest of all 7 strategies across 3 regimes (uptrend/choppy/downtrend). Writes `reports/th_regime_latest.md` and saves regime labels to `regime_labels` DB table.
-2. **`regime-optimise`** — tests strategy-specific signal-param grids on PASS pairs (calmar ≥ 0.3). Only saves to DB if best calmar ≥ 0.5 (unified gate). Writes `reports/th_optimise_latest.md`. Appends entry to `reports/run_log.md`.
-3. **`chart-export`** — backtests each optimised strategy×regime pair using saved params, exports full 5yr OHLCV + all regime-filtered trades + volume to `docs/chart_data.json` for the web viewer.
+2. **`optimise`** — tests strategy-specific signal-param grids on PASS pairs (calmar ≥ 0.3). Only saves to DB if best calmar ≥ 0.5 (unified gate). Writes `reports/th_optimise_latest.md`. Appends entry to `reports/run_log.md`.
+3. **`stability`** — splits benchmark history into separate contiguous regime episodes, scores baseline and optimised pairs by episode consistency, and writes `reports/th_stability_latest.md`.
+4. **`report`** — builds `reports/th_report_latest.md`, the executive summary of current approved, watchlist, and rejected pairs.
+5. **`chart-export`** — backtests each optimised strategy×regime pair using saved params, exports full 5yr OHLCV + all regime-filtered trades + volume to `docs/chart_data.json` for the web viewer.
 
-`run-all` chains all three in sequence with step banners. Use individual commands to re-run a single step.
+`run-all` chains all five in sequence with step banners. Use individual commands to re-run a single step.
+
+`stability` is a research validation step after optimise. It splits each regime into separate contiguous benchmark episodes and checks whether edge is spread across multiple episodes or concentrated in one stretch.
 
 ## Web Viewer
 

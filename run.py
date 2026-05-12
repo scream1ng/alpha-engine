@@ -22,10 +22,11 @@ MARKETS = [
 ]
 
 COMMANDS = [
-    ("run-all",         "Full pipeline: regime → optimise → chart-export (monthly)"),
+    ("run-all",         "Full pipeline: regime → optimise → stability → report → chart-export"),
+    ("report",          "Build and view the latest research summary"),
     ("regime",          "5yr regime discovery — which strategies suit uptrend/choppy/downtrend"),
-    ("regime-optimise", "TP exit optimisation on PASS regime pairs"),
-    ("regime-report",   "View last regime discovery result (instant)"),
+    ("optimise",        "TP exit optimisation on PASS regime pairs"),
+    ("stability",       "Review regime-window stability of baseline and optimised pairs"),
     ("chart-export",    "Export optimised backtests → docs/chart_data.json for web viewer"),
     ("serve",           "Start local web server → http://localhost:8000  (Ctrl+C to stop)"),
 ]
@@ -119,7 +120,7 @@ def interactive() -> None:
     market  = _menu("SELECT MARKET", MARKETS)
 
     symbols = None
-    if command in ("regime", "regime-optimise"):
+    if command in ("run-all", "regime", "optimise"):
         symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
 
     args = argparse.Namespace(capital=1_000_000, symbols=symbols, dry_run=False, strategy_filter=None)
@@ -142,7 +143,7 @@ def cli() -> None:
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--symbols", type=int)
     parser.add_argument("--strategy", dest="strategy_filter", default=None,
-                        help="Limit regime-optimise to one strategy (e.g. pivot_breakout)")
+                        help="Limit optimise to one strategy (e.g. pivot_breakout)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
