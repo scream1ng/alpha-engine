@@ -172,7 +172,7 @@ tr:hover td{background:var(--bg2)}
 .leg-line{width:14px;height:2px;border-radius:1px;flex-shrink:0}
 #chart-wrap{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #lw-main{flex:1;min-height:0}
-#lw-volume{height:56px;flex-shrink:0;border-top:1px solid var(--border)}
+#lw-volume{height:104px;flex-shrink:0;border-top:1px solid var(--border)}
 #lw-rsi{height:72px;flex-shrink:0;border-top:1px solid var(--border)}
 #trade-tbl{flex-shrink:0;height:200px;overflow-y:auto;border-top:2px solid var(--border)}
 </style>
@@ -373,6 +373,33 @@ function optYearly(opt, years) {
   years.forEach(y => result[y] = {ret_pct: +(yrPnl[y] / CAPITAL * 100).toFixed(2)});
   return result;
 }
+function optYearlyStats(opt) {
+  if (!opt || !opt.symbols) return null;
+  const posMap = {};
+  opt.symbols.forEach(s => {
+    (s.trades || []).forEach(t => {
+      const pid = t.position_id || (t.entry_date + '_' + t.entry_price + '_' + s.symbol);
+      const yr  = t.entry_date.slice(0, 4);
+      if (!posMap[pid]) posMap[pid] = {year:yr, pnl:0};
+      posMap[pid].pnl += t.pnl || 0;
+      posMap[pid].year = yr;
+    });
+  });
+  const yearly = {};
+  Object.values(posMap).forEach(pos => {
+    const yr = pos.year;
+    if (!yearly[yr]) yearly[yr] = {ret_pct:0, trade_count:0, win_count:0, wr:null};
+    yearly[yr].ret_pct += pos.pnl || 0;
+    yearly[yr].trade_count += 1;
+    if ((pos.pnl || 0) > 0) yearly[yr].win_count += 1;
+  });
+  Object.keys(yearly).forEach(yr => {
+    const y = yearly[yr];
+    y.ret_pct = +(y.ret_pct / CAPITAL * 100).toFixed(2);
+    y.wr = y.trade_count ? +(y.win_count / y.trade_count * 100).toFixed(1) : null;
+  });
+  return yearly;
+}
 
 function buildPerfTable(rm, optLookup, allIds) {
   const REGIMES = ['uptrend','choppy','downtrend'];
@@ -476,7 +503,7 @@ function renderStrategyDetail(stratId, regime) {
   const totalTrades = syms.reduce((a,s) => a + s.trade_count, 0);
 
   // ── Year bars (base run)
-  const yearly = rm.yearly || {};
+  const yearly = (strat ? optYearlyStats(strat) : null) || rm.yearly || {};
   const yrs    = Object.keys(yearly).sort();
   let maxAbs = 0;
   yrs.forEach(y => { const v = Math.abs((yearly[y]||{}).ret_pct||0); if (v>maxAbs) maxAbs=v; });
@@ -572,7 +599,7 @@ function renderStrategyDetail(stratId, regime) {
           '<div class="m-item"><div class="m-lbl">Win Rate</div><div class="m-val neu">' + (wr!=null?fmt(wr,1)+'%':'—') + '</div><div class="m-note">% of trades profitable</div></div>' +
           (retPct!=null ? '<div class="m-item"><div class="m-lbl">Return / yr</div><div class="m-val ' + clr(retPct) + '">' + pct(retPct) + '</div><div class="m-note">Annualised on capital</div></div>' : '') +
           '<div class="m-item"><div class="m-lbl">Max Drawdown</div><div class="m-val neg">' + (maxdd?fmt(maxdd,1)+'%':'—') + '</div><div class="m-note">Worst peak-to-trough</div></div>' +
-          '<div class="m-item"><div class="m-lbl">Trades (2yr)</div><div class="m-val neu">' + totalTrades + '</div><div class="m-note">Regime-filtered</div></div>' +
+          '<div class="m-item"><div class="m-lbl">Trades</div><div class="m-val neu">' + totalTrades + '</div><div class="m-note">Optimised positions, counted by entry date</div></div>' +
           '<div class="m-item"><div class="m-lbl">Symbols</div><div class="m-val neu">' + syms.length + '</div><div class="m-note">With ≥1 trade</div></div>' +
         '</div>' +
         (combo ? '<div><span style="font-size:10px;color:var(--text3)">Combo: </span><span class="combo-tag">' + combo + '</span></div>' : '') +
@@ -580,11 +607,11 @@ function renderStrategyDetail(stratId, regime) {
       // Params
       '<div class="card"><div class="card-hdr">Parameters &amp; Risk Management</div><div class="card-body">' + paramsHtml + '</div></div>' +
       // Year bars
-      '<div class="card"><div class="card-hdr">Annual Returns — base run (5yr)</div><div class="card-body"><div class="yr-bars">' + yrBarsHtml + '</div></div></div>' +
+      '<div class="card"><div class="card-hdr">Annual Returns — Optimised trades</div><div class="card-body"><div class="yr-bars">' + yrBarsHtml + '</div></div></div>' +
       // Year accordion
       (sortedYrs.length ?
-        '<div class="card"><div class="card-hdr">Trades by Year — 5yr window</div><div class="card-body" style="padding:8px">' + accordHtml + '</div></div>' :
-        '<div style="padding:20px;text-align:center;color:var(--text3)">No 2yr trades found.</div>') +
+        '<div class="card"><div class="card-hdr">Trades by Year — Optimised positions by entry year</div><div class="card-body" style="padding:8px">' + accordHtml + '</div></div>' :
+        '<div style="padding:20px;text-align:center;color:var(--text3)">No trades found.</div>') +
     '</div>';
 }
 
@@ -787,19 +814,23 @@ function buildChart(strat, symData, ohlcv, showRsi) {
     legend.push({c:'#0969da',l:'SMA50'});
   }
 
-  // SL / TP bounded lines
-  const slD  = buildLvl(ohlcv, trades, t => t.sl_price);
-  const tp1D = buildLvl(ohlcv, trades, t => t.tp1_price);
-  const tp2D = buildLvl(ohlcv, trades, t => t.tp2_price);
-  if (slD.length)  { addLine(chart,slD, '#cf222e',1,true); legend.push({c:'#cf222e',l:'SL'}); }
-  if (tp1D.length) { addLine(chart,tp1D,'#1a7f37',1,true); legend.push({c:'#1a7f37',l:'TP1'}); }
-  if (tp2D.length) { addLine(chart,tp2D,'#0969da',1,true); legend.push({c:'#0969da',l:'TP2'}); }
+  const chartTimes = ohlcv.map(b => b.time);
+  const timeIndex = new Map(chartTimes.map((time, idx) => [time, idx]));
 
-  // Markers — one Entry per unique date (deduped), exit label from reason
+  // SL / TP bounded lines (per trade, visually padded so adjacent trades do not read as one path)
+  const slN  = addTradeLevelLines(chart, trades, chartTimes, timeIndex, t => t.sl_price,  '#cf222e', 1, true);
+  const tp1N = addTradeLevelLines(chart, trades, chartTimes, timeIndex, t => t.tp1_price, '#1a7f37', 1, true);
+  const tp2N = addTradeLevelLines(chart, trades, chartTimes, timeIndex, t => t.tp2_price, '#0969da', 1, true);
+  if (slN)  legend.push({c:'#cf222e',l:'SL'});
+  if (tp1N) legend.push({c:'#1a7f37',l:'TP1'});
+  if (tp2N) legend.push({c:'#0969da',l:'TP2'});
+
+  // Markers — one Entry per position_id, exit labels per exit event
   const markers = [], seen = new Set();
   trades.forEach(t => {
-    if (!seen.has(t.entry_date)) {
-      seen.add(t.entry_date);
+    const entryKey = t.position_id || (t.entry_date + '|' + t.entry_price);
+    if (!seen.has(entryKey)) {
+      seen.add(entryKey);
       markers.push({time:t.entry_date, position:'belowBar', color:'#1a7f37', shape:'arrowUp', text:'Entry'});
     }
     const lbl = exitLbl(t.exit_reason);
@@ -813,7 +844,7 @@ function buildChart(strat, symData, ohlcv, showRsi) {
   if (volEl) {
     const volChart = LightweightCharts.createChart(volEl, {
       ...base,
-      rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.1, bottom:0}, visible:false },
+      rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.12, bottom:0.05}, visible:true },
       timeScale: {...base.timeScale, visible:false},
       autoSize: true,
     });
@@ -821,13 +852,18 @@ function buildChart(strat, symData, ohlcv, showRsi) {
     const volHasData = ohlcv.some(b => b.volume > 0);
     if (volHasData) {
       const volS = volChart.addHistogramSeries({
-        color:'#d0d7de', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:false,
+        color:'#d0d7de', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
       });
       volS.setData(ohlcv.map(b => ({
         time:  b.time,
         value: b.volume || 0,
         color: b.close >= b.open ? '#b7e5c6' : '#ffc1bd',
       })));
+      const volMa = volChart.addLineSeries({
+        color:'#9a6700', lineWidth:1.5, priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
+      });
+      volMa.setData(calcVolumeSMA(ohlcv, 20));
+      legend.push({c:'#9a6700',l:'Vol MA20'});
       chart.timeScale().subscribeVisibleTimeRangeChange(r => { if(r) volChart.timeScale().setVisibleRange(r); });
     }
   }
@@ -868,17 +904,46 @@ function exitLbl(reason) {
 }
 
 /* ── INDICATOR MATH ─────────────────────────────── */
-function addLine(chart, data, color, width=1, dashed=false) {
-  const s = chart.addLineSeries({color, lineWidth:width, lineStyle:dashed?2:0, priceLineVisible:false, lastValueVisible:false});
+function addLine(chart, data, color, width=1, dashed=false, extra={}) {
+  const s = chart.addLineSeries({
+    color,
+    lineWidth:width,
+    lineStyle:dashed?2:0,
+    priceLineVisible:false,
+    lastValueVisible:false,
+  });
   s.setData(data.filter(d => d.value != null));
+  return s;
 }
-function buildLvl(ohlcv, trades, fn) {
-  return ohlcv.reduce((out, bar) => {
-    const t = trades.find(t => bar.time >= t.entry_date && bar.time <= t.exit_date);
-    const v = t ? fn(t) : null;
-    if (v != null) out.push({time:bar.time, value:v});
-    return out;
-  }, []);
+function addTradeLevelLines(chart, trades, chartTimes, timeIndex, fn, color, width=1, dashed=false) {
+  let count = 0;
+  trades.forEach(t => {
+    const v = fn(t);
+    if (v == null) return;
+    count += 1;
+    addLine(
+      chart,
+      tradeLevelSegmentPoints(t, v, chartTimes, timeIndex),
+      color,
+      width,
+      dashed
+    );
+  });
+  return count;
+}
+function tradeLevelSegmentPoints(trade, value, chartTimes, timeIndex) {
+  const entryIdx = timeIndex.get(trade.entry_date);
+  const exitIdx = timeIndex.get(trade.exit_date);
+  if (entryIdx == null || exitIdx == null || exitIdx - entryIdx < 2) {
+    return [
+      {time:trade.entry_date, value},
+      {time:trade.exit_date, value},
+    ];
+  }
+  return [
+    {time:chartTimes[entryIdx + 1], value},
+    {time:chartTimes[exitIdx - 1], value},
+  ];
 }
 function calcEMA(bars, p) {
   const k = 2/(p+1); let ema = null;
@@ -926,6 +991,14 @@ function calcRSI(bars, p=14) {
     else { ag=(ag*(p-1)+g)/p; al=(al*(p-1)+l)/p; const rs=al===0?100:ag/al; out.push({time:bars[i].time,value:100-100/(1+rs)}); }
   }
   return out;
+}
+function calcVolumeSMA(bars, p=20) {
+  return bars.map((b,i) => {
+    if (i < p-1) return {time:b.time, value:null};
+    let sum=0;
+    for(let j=0;j<p;j++) sum += (bars[i-j].volume || 0);
+    return {time:b.time, value:sum/p};
+  });
 }
 </script>
 </body>
