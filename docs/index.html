@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Alpha Engine</title>
-<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 /* ── RESET ─────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
@@ -179,6 +178,59 @@ tr:hover td{background:var(--bg2)}
 #lw-volume{height:104px;flex-shrink:0;border-top:1px solid var(--border)}
 #lw-rsi{height:72px;flex-shrink:0;border-top:1px solid var(--border)}
 #trade-tbl{flex-shrink:0;height:200px;overflow-y:auto;border-top:2px solid var(--border)}
+
+/* ── LEARNING ────────────────────────────────── */
+#page.learning-mode{overflow:hidden;display:flex;flex-direction:column}
+.learn-home{max-width:1200px;margin:0 auto;width:100%;padding:22px 20px 36px}
+.learn-intro{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.learn-intro h2{font-size:22px;font-weight:700}
+.learn-intro p{font-size:13px;color:var(--text2);max-width:720px}
+.learn-section{margin-top:18px}
+.learn-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.learn-section-head h3{font-size:16px;font-weight:800;letter-spacing:.2px}
+.learn-section-copy{font-size:12px;color:var(--text2)}
+.learn-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.learn-card{border:1px solid var(--border);border-radius:12px;background:linear-gradient(180deg,#fff 0%,#f8fafc 100%);box-shadow:0 8px 20px rgba(15,23,42,.05);padding:16px;display:flex;flex-direction:column;gap:12px}
+.learn-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.learn-card h3{font-size:16px;font-weight:700}
+.learn-chip{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;border:1px solid var(--border);background:var(--bg);font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text2)}
+.learn-chip.uptrend{background:var(--up-bg);border-color:var(--up-bdr);color:var(--up-fg)}
+.learn-chip.choppy{background:var(--ch-bg);border-color:var(--ch-bdr);color:var(--ch-fg)}
+.learn-chip.downtrend{background:var(--dn-bg);border-color:var(--dn-bdr);color:var(--dn-fg)}
+.learn-copy{font-size:12px;color:var(--text2);min-height:54px}
+.learn-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--text3)}
+.learn-meta strong{color:var(--text)}
+.learn-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:filter .12s, transform .12s}
+.learn-btn:hover{filter:brightness(.96)}
+.learn-btn.alt{background:var(--bg);color:var(--accent)}
+.learn-btn.alt:hover{background:#eff6ff}
+.learn-player{display:flex;flex-direction:column;height:calc(100dvh - 48px)}
+.learn-layout{flex:1;min-height:0;display:flex;flex-direction:column}
+.learn-chart-shell{display:flex;flex:1;flex-direction:column;min-height:0;background:var(--bg);max-width:1120px;width:100%;margin:0 auto}
+.learn-chart-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg2);flex-wrap:wrap}
+.learn-step-copy{padding:12px 16px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%)}
+.learn-step-copy .kicker{font-size:10px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+.learn-step-copy .title{font-size:16px;font-weight:700;margin-bottom:4px}
+.learn-step-copy .text{font-size:12px;line-height:1.55;color:var(--text2);max-width:760px}
+.learn-chart-stage{flex:1;min-height:0;display:flex;flex-direction:column}
+#learn-chart{flex:1;min-height:420px}
+#learn-chart-volume{height:120px;flex-shrink:0;border-top:1px solid var(--border);display:none}
+#learn-chart-rsi{height:108px;flex-shrink:0;border-top:1px solid var(--border);display:none}
+#learn-chart-legend{display:flex;gap:10px;padding:6px 12px;border-top:1px solid var(--border);background:var(--bg2);flex-wrap:wrap}
+.learn-playbar{padding:10px 12px 16px;border-top:1px solid var(--border);background:var(--bg)}
+.learn-playbar-inner{width:min(820px,100%);margin:0 auto;display:flex;flex-direction:column;align-items:center;gap:10px}
+.learn-play-controls,.learn-play-steps{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}
+.learn-step-pills{display:flex;gap:6px;flex-wrap:wrap}
+.learn-step-pill{border:1px solid var(--border);background:var(--bg);color:var(--text2);border-radius:999px;padding:5px 10px;font-size:11px;font-weight:700}
+.learn-step-pill.active{border-color:var(--accent);background:#eff6ff;color:var(--accent)}
+@media (max-width: 980px){
+  .learn-chart-shell{max-width:none}
+  .learn-step-copy .text{max-width:none}
+  .learn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width: 640px){
+  .learn-grid{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
@@ -188,6 +240,7 @@ tr:hover td{background:var(--bg2)}
     <div id="nav-logo"><span class="alpha-sym">α</span>ALPHA ENGINE</div>
     <div id="nav-tabs">
       <a class="nav-tab" href="#" id="tab-overview">Overview</a>
+      <a class="nav-tab" href="#/learning" id="tab-learning">Learning</a>
       <span class="nav-tab dim">Paper Trade</span>
       <span class="nav-tab dim">Signals</span>
     </div>
@@ -203,9 +256,11 @@ tr:hover td{background:var(--bg2)}
 <div id="page"><div style="padding:40px;text-align:center;color:var(--text3)">Loading…</div></div>
 
 <script>
-const DATA_URL = './chart_data.json'; // swap to Railway API when live
+const DATA_URL = './chart_data.json';
+const API_BASE = window.ALPHA_API_BASE || (location.protocol === 'file:' ? '' : location.origin);
+const CHART_LIB_URL = 'https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js';
 const MARKET_STORAGE_KEY = 'alpha-engine-active-market';
-let D = null, ACTIVE_MARKET = null, _charts = [];
+let D = null, ACTIVE_MARKET = null, _charts = [], _ohlcvCache = {}, _symbolOhlcvCache = {}, _learningTimer = null, _learningAutoTimer = null, _learningState = null, _learningLessonCatalog = null;
 
 function normalizePayload(raw) {
   if (raw && typeof raw === 'object' && raw.markets && typeof raw.markets === 'object') {
@@ -233,6 +288,70 @@ function activeMarketKey() {
 function currentData() {
   const key = activeMarketKey();
   return key && D && D.markets ? D.markets[key] : null;
+}
+
+async function loadOhlcvForActiveMarket() {
+  const marketKey = activeMarketKey();
+  const data = currentData();
+  if (!marketKey || !data) return {};
+  if (_ohlcvCache[marketKey]) return _ohlcvCache[marketKey];
+  if (data.ohlcv && typeof data.ohlcv === 'object') {
+    _ohlcvCache[marketKey] = data.ohlcv;
+    return data.ohlcv;
+  }
+  if (!data.ohlcv_file) {
+    _ohlcvCache[marketKey] = {};
+    return _ohlcvCache[marketKey];
+  }
+
+  const r = await fetch(data.ohlcv_file);
+  if (!r.ok) throw new Error('HTTP ' + r.status + ' loading ' + data.ohlcv_file);
+  const raw = await r.json();
+  const ohlcv = raw && raw.ohlcv ? raw.ohlcv : raw;
+  _ohlcvCache[marketKey] = (ohlcv && typeof ohlcv === 'object') ? ohlcv : {};
+  data.ohlcv = _ohlcvCache[marketKey];
+  return _ohlcvCache[marketKey];
+}
+
+async function loadOhlcvForSymbol(symbol) {
+  const marketKey = activeMarketKey();
+  const cacheKey = marketKey + ':' + symbol;
+  if (_symbolOhlcvCache[cacheKey]) return _symbolOhlcvCache[cacheKey];
+
+  if (API_BASE && marketKey && symbol) {
+    try {
+      const url = API_BASE.replace(/\/$/, '') + '/api/ohlcv?market=' + encodeURIComponent(marketKey) + '&symbol=' + encodeURIComponent(symbol);
+      const r = await fetch(url, {headers:{accept:'application/json'}});
+      if (r.ok) {
+        const payload = await r.json();
+        const rows = payload && Array.isArray(payload.ohlcv) ? payload.ohlcv : null;
+        if (rows && rows.length) {
+          _symbolOhlcvCache[cacheKey] = rows;
+          return rows;
+        }
+      }
+    } catch (_) {}
+  }
+
+  const local = await loadOhlcvForActiveMarket();
+  const rows = local[symbol] || [];
+  if (rows.length) _symbolOhlcvCache[cacheKey] = rows;
+  return rows;
+}
+
+async function ensureChartLibrary() {
+  if (window.LightweightCharts) return window.LightweightCharts;
+  if (window.__alphaChartLibPromise) return window.__alphaChartLibPromise;
+
+  window.__alphaChartLibPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = CHART_LIB_URL;
+    script.onload = () => resolve(window.LightweightCharts);
+    script.onerror = () => reject(new Error('Could not load chart library from unpkg'));
+    document.head.appendChild(script);
+  });
+
+  return window.__alphaChartLibPromise;
 }
 
 function renderMarketSwitch() {
@@ -271,34 +390,6 @@ function setActiveMarket(marketKey, resetToOverview = true) {
 async function loadData() {
   const r = await fetch(DATA_URL);
   if (!r.ok) throw new Error('HTTP ' + r.status);
-  D = await r.json();
-  const reg = (D.current_regime || '').toLowerCase();
-  const badge = document.getElementById('nav-regime');
-  badge.textContent = D.current_regime || '—';
-  badge.className = 'regime-badge ' + reg;
-  document.getElementById('nav-mkt').textContent  = D.market || '—';
-  document.getElementById('nav-date').textContent = D.generated || '—';
-  route();
-}
-
-function route() {
-  if (!D) return;
-  destroyCharts();
-  const pg = document.getElementById('page');
-  const hash  = location.hash.replace(/^#\/?/, '');
-  const parts = hash.split('/').filter(Boolean);
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-overview').classList.add('active');
-  pg.classList.remove('chart-mode');
-  if (!parts.length || parts[0] === 'overview') renderOverview();
-  else if (parts[0] === 'strategy' && parts[1] && parts[2]) renderStrategyDetail(parts[1], parts[2]);
-  else if (parts[0] === 'chart'    && parts[1] && parts[2]) { pg.classList.add('chart-mode'); renderSymbolChart(parts[1], decodeURIComponent(parts[2])); }
-  else renderOverview();
-}
-
-async function loadData() {
-  const r = await fetch(DATA_URL);
-  if (!r.ok) throw new Error('HTTP ' + r.status);
   D = normalizePayload(await r.json());
   const storedMarket = (() => {
     try { return localStorage.getItem(MARKET_STORAGE_KEY); } catch (_) { return null; }
@@ -320,13 +411,28 @@ function route() {
   const hash  = location.hash.replace(/^#\/?/, '');
   const parts = hash.split('/').filter(Boolean);
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-overview').classList.add('active');
   pg.classList.remove('chart-mode');
-  if (!parts.length || parts[0] === 'overview') renderOverview();
+  pg.classList.remove('learning-mode');
+  if (!parts.length || parts[0] === 'overview') {
+    document.getElementById('tab-overview').classList.add('active');
+    renderOverview();
+  }
+  else if (parts[0] === 'learning' && parts[1] && parts[2]) {
+    document.getElementById('tab-learning').classList.add('active');
+    pg.classList.add('learning-mode');
+    renderLearningLesson(parts[1], parts[2]);
+  }
+  else if (parts[0] === 'learning') {
+    document.getElementById('tab-learning').classList.add('active');
+    renderLearningHome();
+  }
   else if (parts[0] === 'strategy' && parts[1] && parts[2]) renderStrategyDetail(parts[1], parts[2]);
   else if (parts[0] === 'chart' && parts[1] && parts[2] && parts[3]) { pg.classList.add('chart-mode'); renderSymbolChart(parts[1], parts[2], decodeURIComponent(parts[3])); }
   else if (parts[0] === 'chart' && parts[1] && parts[2]) { pg.classList.add('chart-mode'); renderSymbolChart(parts[1], null, decodeURIComponent(parts[2])); }
-  else renderOverview();
+  else {
+    document.getElementById('tab-overview').classList.add('active');
+    renderOverview();
+  }
 }
 window.addEventListener('hashchange', route);
 window.addEventListener('DOMContentLoaded', () =>
@@ -337,8 +443,20 @@ window.addEventListener('DOMContentLoaded', () =>
 );
 
 function destroyCharts() {
+  clearLearningTimers();
   _charts.forEach(c => { try { c.remove(); } catch(_) {} });
   _charts = [];
+}
+
+function clearLearningTimers() {
+  if (_learningTimer) {
+    clearTimeout(_learningTimer);
+    _learningTimer = null;
+  }
+  if (_learningAutoTimer) {
+    clearTimeout(_learningAutoTimer);
+    _learningAutoTimer = null;
+  }
 }
 
 /* ── UTILS ──────────────────────────────────────── */
@@ -350,6 +468,8 @@ const avgRetFromYearly = yearly => {
 const pct = (n, d=1) => n == null ? '—' : (n >= 0 ? '+' : '') + n.toFixed(d) + '%';
 const clr = n => n >= 0 ? 'pos' : 'neg';
 const nav = hash => { location.hash = hash ? '/' + hash : ''; };
+const DISABLED_STRATEGY_IDS = new Set(['narrow_range']);
+const isVisibleStrategy = strat => !!strat && !DISABLED_STRATEGY_IDS.has(strat.id);
 const pill = r => {
   const cls = r === 'uptrend' ? 'uptrend' : r === 'choppy' ? 'choppy' : 'downtrend';
   const lbl = r === 'uptrend' ? '▲ UPTREND' : r === 'choppy' ? '≈ CHOPPY' : '▼ DOWNTREND';
@@ -361,9 +481,9 @@ const sLabel = id => id ? id.replace(/_/g, ' ') : '—';
 function renderOverview() {
   const data   = currentData();
   const rm     = (data && data.regime_map) || {};
-  const strats = (data && data.strategies) || [];
+  const strats = ((data && data.strategies) || []).filter(isVisibleStrategy);
   const cur    = ((data && data.current_regime) || '').toLowerCase();
-  const allIds = [...new Set(Object.keys(rm).map(k => k.split('|')[0]))].sort();
+  const allIds = [...new Set(Object.keys(rm).map(k => k.split('|')[0]).filter(id => !DISABLED_STRATEGY_IDS.has(id)))].sort();
   const optLookup = {};
   strats.forEach(s => { optLookup[s.id + '|' + s.regime] = s; });
 
@@ -514,6 +634,16 @@ function buildPerfTable(rm, optLookup, allIds) {
       }
     });
   });
+  const regimeRank = Object.fromEntries(REGIMES.map((reg, idx) => [reg, idx]));
+  passEntries.sort((a, b) => {
+    const ar = regimeRank[a.reg] ?? 99;
+    const br = regimeRank[b.reg] ?? 99;
+    if (ar !== br) return ar - br;
+    const ac = a.opt ? a.opt.calmar : a.base.calmar;
+    const bc = b.opt ? b.opt.calmar : b.base.calmar;
+    if ((bc || 0) !== (ac || 0)) return (bc || 0) - (ac || 0);
+    return sLabel(a.id).localeCompare(sLabel(b.id));
+  });
   if (!passEntries.length) return '';
 
   const allYears = new Set();
@@ -587,10 +717,1910 @@ function buildPerfTable(rm, optLookup, allIds) {
   );
 }
 
+/* ── LEARNING ────────────────────────────────── */
+function learningCopyForStrategy(id) {
+  const copy = {
+    pivot_breakout: {
+      title: 'Pivot Breakout',
+      summary: 'Breakout through a recent pivot high once price proves it can clear resistance.',
+      setup: 'Price coils beneath a recent high while the broader structure still supports an upside break.',
+      trigger: 'The trade activates once price trades through the pivot breakout level.',
+      management: 'Risk sits below the breakout structure, and ATR-based targets define the first profit zone.',
+    },
+    trendline_breakout: {
+      title: 'Trendline Breakout',
+      summary: 'Break above a recent swing structure with trend confirmation already in place.',
+      setup: 'The pattern forms when price pushes through a recent swing ceiling while remaining structurally healthy.',
+      trigger: 'Entry happens only after the breakout candle actually clears the trigger level.',
+      management: 'The initial stop sits beneath the breakout structure; the runner is managed by exit rules.',
+    },
+    pullback_buy: {
+      title: 'Pullback Buy',
+      summary: 'Buy a pullback that holds trend support rather than chasing an extended move.',
+      setup: 'Price retraces toward support but does not break the larger trend context.',
+      trigger: 'Entry waits for the pullback to prove demand is stepping back in.',
+      management: 'The stop protects against a failed retracement; targets pay for the rebound.',
+    },
+    reversal: {
+      title: 'Reversal',
+      summary: 'Fade an oversold stretch once price has room to mean-revert.',
+      setup: 'Momentum gets stretched enough to create a bounce setup without fully breaking structure.',
+      trigger: 'The entry bar confirms the reversal attempt after the oversold condition is already present.',
+      management: 'ATR targets monetize the snapback while exits defend against a failed bounce.',
+    },
+    bb_squeeze: {
+      title: 'BB Squeeze',
+      summary: 'Trade expansion after volatility compression inside the squeeze.',
+      setup: 'Bollinger Bands compress inside the Keltner Channel, signaling stored energy.',
+      trigger: 'The lesson shows the candle that releases the squeeze and trades through the setup.',
+      management: 'Once expansion starts, ATR targets and exit logic determine whether to scale or trail.',
+    },
+    ma_cross: {
+      title: 'MA Cross',
+      summary: 'Momentum takes control when the fast average regains leadership over the slower trend.',
+      setup: 'The move begins with averages aligning in favor of the trade direction.',
+      trigger: 'Entry waits for price to confirm the moving-average shift rather than anticipating it.',
+      management: 'Risk is defined immediately and the EMA10 helps show where the move stops behaving well.',
+    },
+  };
+  return copy[id] || {
+    title: sLabel(id),
+    summary: 'Representative lesson built from a real exported trade.',
+    setup: 'The setup explains what had to be true before the trade was allowed.',
+    trigger: 'The trigger step shows the candle that actually caused the entry.',
+    management: 'The management step shows the risk and reward structure used by the system.',
+  };
+}
+
+function findBarIndexByDate(bars, targetDate) {
+  if (!bars || !bars.length) return -1;
+  const exact = bars.findIndex(b => b.time === targetDate);
+  if (exact >= 0) return exact;
+  const firstAfter = bars.findIndex(b => b.time >= targetDate);
+  return firstAfter >= 0 ? firstAfter : bars.length - 1;
+}
+
+function extractLearningPositions(symbolRows) {
+  const posMap = {};
+  (symbolRows || []).forEach(sym => {
+    (sym.trades || []).forEach(t => {
+      const pid = t.position_id || (t.entry_date + '_' + t.entry_price + '_' + sym.symbol);
+      if (!posMap[pid]) {
+        posMap[pid] = {
+          position_id: pid,
+          symbol: sym.symbol,
+          entry_date: t.entry_date,
+          exit_date: t.exit_date,
+          entry_price: t.entry_price,
+          stop_price: t.sl_price,
+          tp1_price: t.tp1_price,
+          tp2_price: t.tp2_price,
+          pnl: 0,
+          bars_held: 0,
+          exits: [],
+        };
+      }
+      const row = posMap[pid];
+      row.pnl += +(t.pnl || 0);
+      row.exit_date = row.exit_date > t.exit_date ? row.exit_date : t.exit_date;
+      row.stop_price = row.stop_price != null ? row.stop_price : t.sl_price;
+      row.tp1_price = row.tp1_price != null ? row.tp1_price : t.tp1_price;
+      row.tp2_price = row.tp2_price != null ? row.tp2_price : t.tp2_price;
+      row.bars_held = Math.max(row.bars_held || 0, t.bars_held || 0);
+      row.exits.push({
+        exit_date: t.exit_date,
+        exit_price: t.exit_price,
+        exit_reason: t.exit_reason,
+        pnl: t.pnl,
+      });
+    });
+  });
+  return Object.values(posMap)
+    .map(pos => ({...pos, exits: pos.exits.sort((a,b) => a.exit_date < b.exit_date ? -1 : 1)}))
+    .sort((a,b) => {
+      const aScore = a.pnl > 0 ? a.pnl + 1e9 : a.pnl;
+      const bScore = b.pnl > 0 ? b.pnl + 1e9 : b.pnl;
+      return bScore - aScore;
+    });
+}
+
+function learningRegimeMeta(regime) {
+  const meta = {
+    uptrend: {
+      title: 'Uptrend',
+      copy: 'Strategies here are meant to participate when trend structure already supports continuation.',
+    },
+    choppy: {
+      title: 'Choppy',
+      copy: 'These lessons focus on mean reversion or controlled breakout logic when trend quality is weaker.',
+    },
+    downtrend: {
+      title: 'Downtrend',
+      copy: 'These setups are the current research focus, showing how the engine exploits compressed or defensive conditions.',
+    },
+  };
+  return meta[regime] || {title: sLabel(regime), copy: ''};
+}
+
+function learningIndicatorSpecs(strategyId, lesson) {
+  const p = lesson.params || {};
+  const specs = [
+    {name:'EMA10', color:'#1a7f37', desc:'Exit guide. If price loses the short-term trend, the move is no longer behaving as expected.'},
+    {name:'SMA50', color:'#cf222e', desc:'Intermediate structure line. Helps frame whether price is operating in healthy trend space.'},
+    {name:'SMA200', color:'#111111', desc:'Long-term structure line. Keeps the lesson grounded in the broader market context.'},
+  ];
+  if (strategyId === 'reversal') specs.push({name:'RSI(' + ((lesson.indicator_params || {}).rsi_period || 14) + ')', color:'#7c3aed', desc:'Momentum stretch gauge. The setup wants price oversold enough to justify a bounce.'});
+  if (strategyId === 'bb_squeeze') {
+    specs.push({name:'Bollinger Bands', color:'#7c3aed', desc:'Show volatility compression and the expansion that follows the squeeze.'});
+    specs.push({name:'Keltner Channel', color:'#c2410c', desc:'Defines the squeeze condition by comparing ATR-based volatility against the Bollinger envelope.'});
+  }
+  if (strategyId === 'ma_cross') {
+    const ip = lesson.indicator_params || {};
+    specs.push({name:'EMA' + (ip.ma_fast || 10), color:'#d97706', desc:'Fast momentum line. The lesson shows when the fast line regains control.'});
+    if ((ip.ma_slow || 20) !== 50 && (ip.ma_slow || 20) !== 200) specs.push({name:'SMA' + (ip.ma_slow || 20), color:'#0969da', desc:'Slow trend filter. Confirms whether the fast line is aligned with the larger move.'});
+  }
+  if (strategyId === 'pivot_breakout' || strategyId === 'trendline_breakout') {
+    specs.push({name:'Trigger Line', color:'#0969da', desc:'The price level that must actually trade for the entry to become live.'});
+  }
+  if ((p.rvol_min || 0) > 0 || strategyId === 'bb_squeeze' || strategyId === 'pivot_breakout') {
+    specs.push({name:'Volume / RVOL', color:'#9a6700', desc:'Used as participation confirmation. Breakouts without volume are lower quality.'});
+  }
+  return specs;
+}
+
+function learningChecklist(strategyId, lesson) {
+  const lists = {
+    pivot_breakout: [
+      'Recent resistance is clearly defined by a pivot high.',
+      'Price is close enough to the trigger that the breakout is actionable now.',
+      'Volume participation should support the break instead of fading it.',
+    ],
+    trendline_breakout: [
+      'A swing ceiling is visible and price is leaning into it.',
+      'The trend backdrop is still supportive before the break happens.',
+      'The breakout candle must clear the trigger, not just touch nearby resistance.',
+    ],
+    pullback_buy: [
+      'The broader trend is intact before the pullback starts.',
+      'Price pulls back into a zone where demand can reasonably re-enter.',
+      'The bounce candle proves the retracement is stabilizing rather than failing.',
+    ],
+    reversal: [
+      'Price is stretched enough to justify a mean-reversion attempt.',
+      'The oversold condition is visible through RSI, not just by eye.',
+      'The bounce should start without fully breaking the larger structure first.',
+    ],
+    bb_squeeze: [
+      'Volatility compresses before the breakout attempt.',
+      'The release candle expands range out of the squeeze instead of stalling.',
+      'Participation matters more than prediction here; wait for the actual break.',
+    ],
+    ma_cross: [
+      'Fast and slow averages are converging toward a meaningful shift.',
+      'Price confirms the average transition instead of being badly extended from it.',
+      'The lesson is about momentum reclaim, not random MA intersection noise.',
+    ],
+  };
+  return lists[strategyId] || [
+    'Context must align before the engine is allowed to enter.',
+    'The trigger must actually print on the chart.',
+    'Risk is defined before the trade is accepted.',
+  ];
+}
+
+function collectLearningLessons() {
+  const data = currentData();
+  const strats = ((data && data.strategies) || []).filter(isVisibleStrategy);
+  return strats.map(strat => {
+    const positions = extractLearningPositions(strat.symbols || []);
+    const position = positions[0];
+    if (!position) return null;
+    const copy = learningCopyForStrategy(strat.id);
+    return {
+      id: strat.id,
+      regime: strat.regime,
+      symbol: position.symbol,
+      combo: strat.combo,
+      calmar: strat.calmar,
+      ret_pct: strat.ret_pct,
+      params: strat.params || {},
+      indicator_params: strat.indicator_params || {},
+      copy,
+      indicators: learningIndicatorSpecs(strat.id, {params: strat.params || {}, indicator_params: strat.indicator_params || {}}),
+      checklist: learningChecklist(strat.id, {params: strat.params || {}, indicator_params: strat.indicator_params || {}}),
+      position,
+    };
+  }).filter(Boolean).sort((a, b) => {
+    const aKey = a.copy.title + '|' + a.regime;
+    const bKey = b.copy.title + '|' + b.regime;
+    return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
+  });
+}
+
+function renderLearningHome() {
+  const lessons = collectLearningLessons();
+  if (!lessons.length) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No lessons available. Run chart-export first.</div>';
+    return;
+  }
+
+  const regimes = ['uptrend', 'choppy', 'downtrend'];
+  const sections = regimes.map(regime => {
+    const items = lessons.filter(lesson => lesson.regime === regime);
+    if (!items.length) return '';
+    const meta = learningRegimeMeta(regime);
+    const cards = items.map(lesson =>
+      '<div class="learn-card">' +
+        '<div class="learn-card-top">' +
+          '<h3>' + lesson.copy.title + '</h3>' +
+          '<span class="learn-chip ' + regime + '">' + meta.title + '</span>' +
+        '</div>' +
+        '<div class="learn-copy">' + lesson.copy.summary + '</div>' +
+        '<div class="learn-meta">' +
+          '<span><strong>Example</strong> ' + lesson.symbol + '</span>' +
+          '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,3).join(', ') + '</span>' +
+        '</div>' +
+        '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
+      '</div>'
+    ).join('');
+    return '<section class="learn-section">' +
+      '<div class="learn-section-head"><div><h3>' + meta.title + '</h3><div class="learn-section-copy">' + meta.copy + '</div></div></div>' +
+      '<div class="learn-grid">' + cards + '</div>' +
+    '</section>';
+  }).join('');
+
+  document.getElementById('page').innerHTML =
+    '<div class="learn-home">' +
+      '<div class="learn-intro">' +
+        '<div><h2>Learning</h2><p>Start with the market regime, then drill into the strategy that belongs there. Each lesson uses a real exported trade and focuses on the indicators that actually matter for that setup.</p></div>' +
+      '</div>' +
+      sections +
+    '</div>';
+}
+
+function learningStepMeta(state) {
+  const copy = state.lesson.copy;
+  const triggerIdx = state.entryIdx;
+  const setupEnd = Math.max(Math.min(triggerIdx - 3, state.bars.length - 1), Math.min(16, state.bars.length - 1));
+  return [
+    {
+      title: '1. Setup',
+      text: copy.setup,
+      focusEnd: setupEnd,
+      showTrigger: false,
+      showLevels: false,
+      showOutcome: false,
+    },
+    {
+      title: '2. Trigger',
+      text: copy.trigger,
+      focusEnd: triggerIdx,
+      showTrigger: true,
+      showLevels: false,
+      showOutcome: false,
+    },
+    {
+      title: '3. Risk & Target',
+      text: copy.management,
+      focusEnd: Math.min(state.bars.length - 1, Math.max(triggerIdx + 6, triggerIdx)),
+      showTrigger: true,
+      showLevels: true,
+      showOutcome: false,
+    },
+    {
+      title: '4. Outcome',
+      text: 'The chart now extends through the recorded exit so you can see whether the setup paid quickly or needed time to work.',
+      focusEnd: Math.min(state.bars.length - 1, Math.max(state.exitIdx + 4, triggerIdx + 8)),
+      showTrigger: true,
+      showLevels: true,
+      showOutcome: true,
+    },
+  ];
+}
+
+async function renderLearningLesson(stratId, regime) {
+  const lesson = collectLearningLessons().find(x => x.id === stratId && x.regime === regime);
+  if (!lesson) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Lesson not found.</div>';
+    return;
+  }
+  const position = lesson.position;
+
+  document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading lesson...</div>';
+
+  let ohlcvMap;
+  try {
+    ohlcvMap = await loadOhlcvForActiveMarket();
+  } catch (err) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
+    return;
+  }
+  const bars = ohlcvMap[position.symbol];
+  if (!bars || !bars.length) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for lesson symbol ' + position.symbol + '.</div>';
+    return;
+  }
+  try {
+    await ensureChartLibrary();
+  } catch (err) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson chart library: ' + err.message + '</div>';
+    return;
+  }
+
+  const entryIdxFull = findBarIndexByDate(bars, position.entry_date);
+  const exitIdxFull = findBarIndexByDate(bars, position.exit_date);
+  if (entryIdxFull < 0 || exitIdxFull < 0) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Could not map the lesson trade onto chart history.</div>';
+    return;
+  }
+
+  const startIdx = Math.max(0, entryIdxFull - 35);
+  const endIdx = Math.min(bars.length - 1, Math.max(exitIdxFull + 12, entryIdxFull + 16));
+  const lessonBars = bars.slice(startIdx, endIdx + 1);
+
+  _learningState = {
+    lesson: {...lesson, symbol: position.symbol},
+    bars: lessonBars,
+    entryIdx: entryIdxFull - startIdx,
+    exitIdx: exitIdxFull - startIdx,
+    position,
+    step: 0,
+    revealIdx: null,
+    autoPlaying: false,
+  };
+
+  document.getElementById('page').innerHTML =
+    '<div class="learn-player">' +
+      '<div class="pg-hdr">' +
+        '<div class="pg-hdr-inner">' +
+          '<a class="back-btn" onclick="nav(\'learning\')">← Learning</a>' +
+          '<div class="pg-hdr-center"><span class="pg-title">' + lesson.copy.title + '</span>' + pill(lesson.regime) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="learn-layout">' +
+        '<div class="learn-chart-shell">' +
+          '<div class="learn-chart-head">' +
+            '<div class="learn-meta"><span><strong>Example</strong> ' + lesson.symbol + '</span><span><strong>Combo</strong> ' + (lesson.combo || 'base') + '</span><span><strong>Calmar</strong> ' + fmt(lesson.calmar, 2) + '</span></div>' +
+          '</div>' +
+          '<div class="learn-chart-stage"><div id="learn-chart"></div></div>' +
+          '<div id="learn-chart-legend"></div>' +
+          '<div class="learn-playbar">' +
+            '<div class="learn-play-controls">' +
+              '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) - 1, {animate:false})">Prev</button>' +
+              '<button class="learn-btn" id="learn-play-btn" onclick="toggleLearningAutoplay()">Play</button>' +
+              '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) + 1, {animate:true})">Next</button>' +
+              '<button class="learn-btn alt" onclick="replayLearningTrigger()">Replay Trigger</button>' +
+            '</div>' +
+            '<div class="learn-play-steps"><div class="learn-step-pills" id="learn-step-pills"></div></div>' +
+          '</div>' +
+        '</div>' +
+        '<aside class="learn-side" id="learn-side"></aside>' +
+      '</div>' +
+    '</div>';
+
+  setLearningStep(0, {animate:false});
+}
+
+function renderLearningSidebar() {
+  const state = _learningState;
+  if (!state) return;
+  const steps = learningStepMeta(state);
+  const step = steps[state.step] || steps[0];
+  const playBtn = document.getElementById('learn-play-btn');
+  if (playBtn) playBtn.textContent = state.autoPlaying ? 'Pause' : 'Play';
+
+  const pills = document.getElementById('learn-step-pills');
+  if (pills) {
+    pills.innerHTML = steps.map((s, idx) =>
+      '<button class="learn-step-pill ' + (idx === state.step ? 'active' : '') + '" onclick="setLearningStep(' + idx + ', {animate:' + ((idx === 1 || idx === 2) ? 'true' : 'false') + '})">' + s.title + '</button>'
+    ).join('');
+  }
+
+  const levels = [
+    {cls:'entry', lbl:'Entry', val: state.position.entry_price},
+    {cls:'stop', lbl:'Stop', val: state.position.stop_price},
+    {cls:'tp1', lbl:'TP1', val: state.position.tp1_price},
+    state.position.tp2_price != null ? {cls:'tp2', lbl:'TP2', val: state.position.tp2_price} : null,
+  ].filter(Boolean).map(level =>
+    '<div class="learn-level ' + level.cls + '"><div class="lbl">' + level.lbl + '</div><div class="val">' + fmt(level.val, 2) + '</div></div>'
+  ).join('');
+  const indicators = (state.lesson.indicators || []).map(ind =>
+    '<div class="learn-indicator">' +
+      '<div class="learn-indicator-top"><span class="learn-indicator-line" style="background:' + ind.color + '"></span><span class="learn-indicator-name">' + ind.name + '</span></div>' +
+      '<div class="learn-indicator-copy">' + ind.desc + '</div>' +
+    '</div>'
+  ).join('');
+  const checks = (state.lesson.checklist || []).map(item =>
+    '<div class="learn-check"><span class="learn-check-dot"></span><div class="learn-check-copy">' + item + '</div></div>'
+  ).join('');
+  const lastExit = state.position.exits[state.position.exits.length - 1];
+
+  const side = document.getElementById('learn-side');
+  if (!side) return;
+  side.innerHTML =
+    '<h3>' + state.lesson.copy.title + '</h3>' +
+    '<div class="sub">' + learningRegimeMeta(state.lesson.regime).title + ' · ' + state.lesson.symbol + ' · ' + (state.lesson.combo || 'base') + '</div>' +
+    '<div class="learn-panel"><h4>Step Explanation</h4><p>' + step.text + '</p></div>' +
+    '<div class="learn-panel"><h4>Setup Checklist</h4><div class="learn-checks">' + checks + '</div></div>' +
+    '<div class="learn-panel"><h4>Indicators Used</h4><div class="learn-indicators">' + indicators + '</div></div>' +
+    '<div class="learn-panel"><h4>Trade Levels</h4><div class="learn-levels">' + levels + '</div></div>' +
+    '<div class="learn-panel"><h4>Trade Read</h4><div class="learn-list">' +
+      '<div class="learn-list-item">' + state.lesson.copy.summary + '</div>' +
+      '<div class="learn-list-item">Entry date: ' + state.position.entry_date + '</div>' +
+      '<div class="learn-list-item">Exit date: ' + state.position.exit_date + '</div>' +
+      '<div class="learn-list-item">Final exit: ' + ((lastExit && lastExit.exit_reason) || 'exit') + '</div>' +
+      '<div class="learn-list-item">Position PnL: ' + pct(state.position.pnl / CAPITAL * 100, 2) + ' of starting capital</div>' +
+    '</div></div>';
+}
+
+function setLearningStep(nextStep, opts={}) {
+  const state = _learningState;
+  if (!state) return;
+  const steps = learningStepMeta(state);
+  const maxStep = steps.length - 1;
+  state.step = Math.max(0, Math.min(maxStep, nextStep));
+  state.revealIdx = null;
+  renderLearningSidebar();
+  if (state.step === 1 && opts.animate !== false) animateLearningTrigger();
+  else renderLearningChart();
+}
+
+function animateLearningTrigger() {
+  const state = _learningState;
+  if (!state) return;
+  clearLearningTimers();
+  const startIdx = Math.max(0, state.entryIdx - 4);
+  const finalIdx = state.entryIdx;
+  const tick = idx => {
+    if (!_learningState || _learningState !== state) return;
+    state.revealIdx = idx;
+    renderLearningChart();
+    if (idx < finalIdx) _learningTimer = setTimeout(() => tick(idx + 1), 320);
+  };
+  tick(startIdx);
+}
+
+function replayLearningTrigger() {
+  if (!_learningState) return;
+  setLearningStep(1, {animate:true});
+}
+
+function toggleLearningAutoplay() {
+  const state = _learningState;
+  if (!state) return;
+  state.autoPlaying = !state.autoPlaying;
+  renderLearningSidebar();
+  clearLearningTimers();
+  if (!state.autoPlaying) return;
+  const advance = () => {
+    if (!_learningState || !_learningState.autoPlaying) return;
+    if (_learningState.step >= learningStepMeta(_learningState).length - 1) {
+      _learningState.autoPlaying = false;
+      renderLearningSidebar();
+      return;
+    }
+    const next = _learningState.step + 1;
+    setLearningStep(next, {animate: next === 1});
+    const delay = next === 1 ? 2600 : 2200;
+    _learningAutoTimer = setTimeout(advance, delay);
+  };
+  advance();
+}
+
+function learningPivotBreakoutGuide(state, visibleStartIdx, visibleEndIdx) {
+  const p = (state.lesson.strategy && state.lesson.strategy.params) || {};
+  const lookback = Math.max(1, parseInt(p.lookback || 10, 10));
+  const from = Math.max(0, state.entryIdx - lookback);
+  const to = Math.max(from, state.entryIdx - 1);
+  const prior = state.bars.slice(from, to + 1);
+  if (!prior.length) return null;
+  const level = Math.max(...prior.map(bar => bar.close));
+  return state.bars.slice(visibleStartIdx, visibleEndIdx + 1).map(bar => ({
+    time: bar.time,
+    value: level,
+  }));
+}
+
+function learningTrendlineBreakoutGuide(state, visibleStartIdx, visibleEndIdx) {
+  const p = (state.lesson.strategy && state.lesson.strategy.params) || {};
+  const swingPeriod = Math.max(1, parseInt(p.swing_period || 3, 10));
+  const anchorLookback = Math.max(10, parseInt(p.anchor_lookback || 60, 10));
+  const currentIdx = state.entryIdx;
+  const searchStart = Math.max(swingPeriod, currentIdx - anchorLookback - swingPeriod * 2);
+  const swingHighs = [];
+
+  for (let i = searchStart; i < currentIdx - swingPeriod; i++) {
+    const left = state.bars.slice(i - swingPeriod, i).map(bar => bar.high);
+    const right = state.bars.slice(i + 1, i + swingPeriod + 1).map(bar => bar.high);
+    if (left.length < swingPeriod || right.length < swingPeriod) continue;
+    if (state.bars[i].high > Math.max(...left) && state.bars[i].high >= Math.max(...right)) {
+      swingHighs.push({idx: i, price: state.bars[i].high});
+    }
+  }
+  if (swingHighs.length < 2) return null;
+
+  const anchorCandidates = swingHighs.filter(point => point.idx >= currentIdx - anchorLookback);
+  if (!anchorCandidates.length) return null;
+  const anchor = anchorCandidates.reduce((best, point) => point.price > best.price ? point : best, anchorCandidates[0]);
+  const lowerPivots = swingHighs.filter(point => point.idx > anchor.idx && point.price < anchor.price);
+  if (!lowerPivots.length) return null;
+  const pivot = lowerPivots[lowerPivots.length - 1];
+  const span = pivot.idx - anchor.idx;
+  if (span <= 0) return null;
+
+  const slope = (pivot.price - anchor.price) / span;
+  const lineStart = Math.max(visibleStartIdx, anchor.idx);
+  const points = [];
+  for (let i = lineStart; i <= visibleEndIdx; i++) {
+    points.push({time: state.bars[i].time, value: anchor.price + slope * (i - anchor.idx)});
+  }
+  return {points, anchor, pivot};
+}
+
+function learningPullbackBuyGuide(state, visibleStartIdx, visibleEndIdx) {
+  const p = (state.lesson.strategy && state.lesson.strategy.params) || {};
+  const lookback = Math.max(1, parseInt(p.lookback || 10, 10));
+  const bandMult = Number.isFinite(+p.pullback_atr_band) ? +p.pullback_atr_band : 0.5;
+  const from = Math.max(0, state.entryIdx - lookback);
+  const to = Math.max(from, state.entryIdx - 1);
+  const prior = state.bars.slice(from, to + 1);
+  if (!prior.length) return null;
+
+  const pivot = prior.reduce((best, bar, offset) => {
+    const idx = from + offset;
+    return bar.high > best.price ? {idx, price: bar.high} : best;
+  }, {idx: from, price: prior[0].high});
+  const atrSeries = calcATR(state.bars, 14);
+  const band = (atrSeries[state.entryIdx] || 0) * bandMult;
+  const bars = state.bars.slice(visibleStartIdx, visibleEndIdx + 1);
+  const line = bars.map(bar => ({time: bar.time, value: pivot.price}));
+  const upper = bars.map(bar => ({time: bar.time, value: pivot.price + band}));
+  const lower = bars.map(bar => ({time: bar.time, value: pivot.price - band}));
+  return {line, upper, lower, pivot};
+}
+
+function renderLearningChart() {
+  const state = _learningState;
+  if (!state) return;
+  _charts.forEach(c => { try { c.remove(); } catch(_) {} });
+  _charts = [];
+
+  const chartEl = document.getElementById('learn-chart');
+  if (!chartEl) return;
+
+  const steps = learningStepMeta(state);
+  const step = steps[state.step] || steps[0];
+  const endIdx = (state.step === 1 || state.step === 2) && state.revealIdx != null ? state.revealIdx : step.focusEnd;
+  const visibleBars = state.bars.slice(0, Math.max(1, endIdx + 1));
+  const legend = [];
+
+  const chart = LightweightCharts.createChart(chartEl, {
+    layout:   { background:{type:'Solid',color:'#ffffff'}, textColor:'#656d76' },
+    grid:     { vertLines:{color:'#eaeef2'}, horzLines:{color:'#eaeef2'} },
+    crosshair:{ mode: 1 },
+    rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.08, bottom:0.15} },
+    timeScale: { borderColor:'#d0d7de', timeVisible:true },
+    autoSize: true,
+  });
+  _charts.push(chart);
+
+  const candle = chart.addCandlestickSeries({
+    upColor:'#1a7f37', downColor:'#cf222e',
+    borderUpColor:'#1a7f37', borderDownColor:'#cf222e',
+    wickUpColor:'#1a7f37', wickDownColor:'#cf222e',
+  });
+  candle.setData(visibleBars);
+
+  addLine(chart, calcEMA(visibleBars,10), '#1a7f37', 1.6);
+  addLine(chart, calcSMA(visibleBars,50), '#cf222e', 1.6);
+  addLine(chart, calcSMA(visibleBars,200), '#111111', 1.6);
+  legend.push({c:'#1a7f37',l:'EMA10'}, {c:'#cf222e',l:'SMA50'}, {c:'#111111',l:'SMA200'});
+
+  const ip = state.lesson.indicator_params || {};
+  if (state.lesson.id === 'ma_cross') {
+    const f = ip.ma_fast || 10, s = ip.ma_slow || 20;
+    if (f !== 10) { addLine(chart, calcEMA(visibleBars, f), '#d97706', 1.4); legend.push({c:'#d97706',l:'EMA'+f}); }
+    if (s !== 50 && s !== 200) { addLine(chart, calcSMA(visibleBars, s), '#0969da', 1.4); legend.push({c:'#0969da',l:'SMA'+s}); }
+  } else if (state.lesson.id === 'bb_squeeze') {
+    const bb = calcBB(visibleBars, ip.bb_period || 20, ip.bb_mult || 2.0);
+    const kc = calcKC(visibleBars, ip.kc_mult || 2.0);
+    addLine(chart, bb.upper, '#7c3aed', 1.1, true);
+    addLine(chart, bb.lower, '#7c3aed', 1.1, true);
+    addLine(chart, kc.upper, '#c2410c', 1.1, true);
+    addLine(chart, kc.lower, '#c2410c', 1.1, true);
+    legend.push({c:'#7c3aed',l:'BB'}, {c:'#c2410c',l:'KC'});
+  }
+
+  const markers = [];
+  const entryBar = state.bars[state.entryIdx];
+  const exitBar = state.bars[Math.min(state.exitIdx, visibleBars.length - 1)];
+  if (step.showTrigger && entryBar && state.entryIdx < visibleBars.length) {
+    addLine(chart, constantLineData(visibleBars, state.position.entry_price), '#0969da', 1.3, true);
+    legend.push({c:'#0969da',l:'Trigger'});
+    markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'circle', text:'Trigger'});
+  }
+  if (step.showLevels) {
+    addLine(chart, constantLineData(visibleBars, state.position.stop_price), '#cf222e', 1.1, true);
+    addLine(chart, constantLineData(visibleBars, state.position.tp1_price), '#9a6700', 1.1, true);
+    legend.push({c:'#cf222e',l:'Stop'}, {c:'#9a6700',l:'TP1'});
+    if (state.position.tp2_price != null) {
+      addLine(chart, constantLineData(visibleBars, state.position.tp2_price), '#7c3aed', 1.1, true);
+      legend.push({c:'#7c3aed',l:'TP2'});
+    }
+    if (entryBar && state.entryIdx < visibleBars.length) {
+      markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'arrowUp', text:'Entry'});
+    }
+  }
+  if (step.showOutcome && exitBar && state.exitIdx < visibleBars.length) {
+    const lastExit = state.position.exits[state.position.exits.length - 1];
+    markers.push({time:exitBar.time, position:'aboveBar', color:'#111111', shape:'arrowDown', text:exitLbl((lastExit && lastExit.exit_reason) || 'exit')});
+  }
+
+  candle.setMarkers(markers.sort((a,b) => a.time < b.time ? -1 : 1));
+  chart.timeScale().fitContent();
+
+  const legEl = document.getElementById('learn-chart-legend');
+  if (legEl) legEl.innerHTML = legend.map(i => '<div class="leg"><div class="leg-line" style="background:' + i.c + '"></div>' + i.l + '</div>').join('');
+}
+
+function constantLineData(bars, price) {
+  return (bars || []).map(b => ({time:b.time, value:price}));
+}
+
+// Learning v3: curated real-window lessons, anonymized for teaching.
+function learningLessonCandidates() {
+  return [
+    {id:'pivot_breakout', regimes:['choppy','uptrend','downtrend']},
+    {id:'pullback_buy', regimes:['uptrend','downtrend']},
+    {id:'ma_cross', regimes:['uptrend','downtrend']},
+    {id:'reversal', regimes:['choppy','downtrend']},
+    {id:'bb_squeeze', regimes:['choppy','uptrend','downtrend']},
+    {id:'trendline_breakout', regimes:['downtrend']},
+  ];
+}
+
+function collectLearningLessons() {
+  const data = currentData();
+  const strats = ((data && data.strategies) || []).filter(isVisibleStrategy);
+  return learningLessonCandidates().map(spec => {
+    const strat = spec.regimes.map(reg => strats.find(s => s.id === spec.id && s.regime === reg)).find(Boolean);
+    if (!strat) return null;
+    const positions = extractLearningPositions(strat.symbols || []);
+    if (!positions.length) return null;
+    const copy = learningCopyForStrategy(strat.id);
+    return {
+      id: strat.id,
+      regime: strat.regime,
+      strategy: strat,
+      copy,
+      indicators: learningIndicatorSpecs(strat.id, {indicator_params: strat.indicator_params || {}}),
+      showVolumePanel: learningPanelsForStrategy(strat.id).showVolume,
+      showRsiPanel: learningPanelsForStrategy(strat.id).showRsi,
+      focus: copy.summary,
+    };
+  }).filter(Boolean);
+}
+
+function learningRepresentativeScore(position) {
+  const barsHeld = position.bars_held || 0;
+  const lastExit = (position.exits || [])[position.exits.length - 1] || {};
+  let score = 0;
+  score += position.pnl > 0 ? 100 : -40;
+  score += position.stop_price != null ? 10 : 0;
+  score += position.tp1_price != null ? 10 : 0;
+  score += lastExit.exit_reason === 'tp1' || lastExit.exit_reason === 'tp2' || lastExit.exit_reason === 'ema10_exit' ? 18 : 0;
+  score -= Math.abs(barsHeld - 14) * 1.25;
+  score -= position.entry_price > 0 && position.entry_price < 0.1 ? 20 : 0;
+  score -= position.entry_price > 300 ? 10 : 0;
+  return score;
+}
+
+function chooseRepresentativeLearningPosition(strat) {
+  const positions = extractLearningPositions(strat.symbols || []);
+  if (!positions.length) return null;
+  return [...positions].sort((a, b) => learningRepresentativeScore(b) - learningRepresentativeScore(a))[0] || null;
+}
+
+function learningMedian(values) {
+  const nums = (values || []).filter(v => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
+
+function learningRound(n) {
+  return n == null ? null : +n.toFixed(2);
+}
+
+function buildAnonymizedLearningWindow(strat, position, ohlcv) {
+  const entryIdxFull = findBarIndexByDate(ohlcv, position.entry_date);
+  const exitIdxFull = findBarIndexByDate(ohlcv, position.exit_date);
+  if (entryIdxFull < 0 || exitIdxFull < 0) return null;
+
+  const viewStart = Math.max(0, entryIdxFull - 40);
+  const viewEnd = Math.min(ohlcv.length - 1, Math.max(exitIdxFull + 14, entryIdxFull + 18));
+  const historyStart = Math.max(0, viewStart - 220);
+  const rawBars = ohlcv.slice(historyStart, viewEnd + 1);
+  if (!rawBars.length || !position.entry_price) return null;
+
+  const scale = 100 / position.entry_price;
+  const volBase = learningMedian(rawBars.map(b => b.volume || 0)) || 1;
+  const anonDates = learningBusinessDates(rawBars.length, '2024-01-02');
+  const bars = rawBars.map((bar, idx) => ({
+    time: anonDates[idx],
+    open: learningRound(bar.open * scale),
+    high: learningRound(bar.high * scale),
+    low: learningRound(bar.low * scale),
+    close: learningRound(bar.close * scale),
+    volume: Math.max(0, Math.round(((bar.volume || 0) / volBase) * 100000)),
+  }));
+  const lastExit = (position.exits || [])[position.exits.length - 1] || {};
+  return {
+    bars,
+    baseIdx: viewStart - historyStart,
+    entryIdx: entryIdxFull - historyStart,
+    exitIdx: exitIdxFull - historyStart,
+    position: {
+      entry_price: learningRound(position.entry_price * scale),
+      stop_price: learningRound(position.stop_price * scale),
+      tp1_price: learningRound(position.tp1_price * scale),
+      tp2_price: learningRound(position.tp2_price * scale),
+      exit_reason: lastExit.exit_reason || 'exit',
+    },
+    summary: 'Anonymized real market window',
+    outcomeText: 'This lesson uses a real trade window with the prices and volumes rescaled, so the structure stays realistic while the instrument stays anonymous.',
+  };
+}
+
+function renderLearningHome() {
+  const lessons = collectLearningLessons();
+  if (!lessons.length) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No learning lessons available for the active export. Run chart-export first.</div>';
+    return;
+  }
+
+  const regimes = ['uptrend', 'choppy', 'downtrend'];
+  const sections = regimes.map(regime => {
+    const items = lessons.filter(lesson => lesson.regime === regime);
+    if (!items.length) return '';
+    const meta = learningRegimeMeta(regime);
+    const cards = items.map(lesson =>
+      '<div class="learn-card">' +
+        '<div class="learn-card-top">' +
+          '<h3>' + lesson.copy.title + '</h3>' +
+          '<span class="learn-chip ' + regime + '">' + meta.title + '</span>' +
+        '</div>' +
+        '<div class="learn-copy">' + lesson.copy.summary + '</div>' +
+        '<div class="learn-meta">' +
+          '<span><strong>Source</strong> Anonymized real window</span>' +
+          '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span>' +
+        '</div>' +
+        '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
+      '</div>'
+    ).join('');
+    return '<section class="learn-section">' +
+      '<div class="learn-section-head"><div><h3>' + meta.title + '</h3><div class="learn-section-copy">' + meta.copy + '</div></div></div>' +
+      '<div class="learn-grid">' + cards + '</div>' +
+    '</section>';
+  }).join('');
+
+  document.getElementById('page').innerHTML =
+    '<div class="learn-home">' +
+      '<div class="learn-intro">' +
+        '<div><h2>Learning</h2><p>Each lesson now uses an anonymized real market window from the active export. The symbol and scale are hidden, but the candle structure, pullbacks, failed pushes, and volume behaviour stay real.</p></div>' +
+      '</div>' +
+      sections +
+    '</div>';
+}
+
+function learningStepMeta(state) {
+  const copy = state.lesson.copy;
+  const triggerIdx = state.entryIdx;
+  const setupEnd = Math.max(state.baseIdx + 8, triggerIdx - 3);
+  return [
+    {
+      title: '1. Setup',
+      text: copy.setup,
+      focusEnd: setupEnd,
+      showTrigger: false,
+      showLevels: false,
+      showOutcome: false,
+    },
+    {
+      title: '2. Trigger',
+      text: copy.trigger,
+      focusEnd: triggerIdx,
+      showTrigger: true,
+      showLevels: false,
+      showOutcome: false,
+    },
+    {
+      title: '3. Risk & Target',
+      text: copy.management,
+      focusEnd: Math.min(state.bars.length - 1, Math.max(triggerIdx + 6, triggerIdx)),
+      showTrigger: true,
+      showLevels: true,
+      showOutcome: false,
+    },
+    {
+      title: '4. Outcome',
+      text: state.outcomeText,
+      focusEnd: Math.min(state.bars.length - 1, Math.max(state.exitIdx + 4, triggerIdx + 8)),
+      showTrigger: true,
+      showLevels: true,
+      showOutcome: true,
+    },
+  ];
+}
+
+async function renderLearningLesson(stratId, regime) {
+  const lesson = collectLearningLessons().find(x => x.id === stratId && x.regime === regime);
+  if (!lesson) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Lesson not found.</div>';
+    return;
+  }
+  document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading lesson...</div>';
+
+  let ohlcvMap;
+  try {
+    ohlcvMap = await loadOhlcvForActiveMarket();
+    await ensureChartLibrary();
+  } catch (err) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
+    return;
+  }
+
+  const position = chooseRepresentativeLearningPosition(lesson.strategy);
+  if (!position) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No representative trade found for this lesson.</div>';
+    return;
+  }
+  const ohlcv = ohlcvMap[position.symbol];
+  if (!ohlcv || !ohlcv.length) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for the lesson source symbol.</div>';
+    return;
+  }
+
+  const windowData = buildAnonymizedLearningWindow(lesson.strategy, position, ohlcv);
+  if (!windowData) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Could not build a lesson window from the exported trade history.</div>';
+    return;
+  }
+
+  _learningState = {
+    lesson,
+    bars: windowData.bars,
+    baseIdx: windowData.baseIdx,
+    entryIdx: windowData.entryIdx,
+    exitIdx: windowData.exitIdx,
+    position: windowData.position,
+    outcomeText: windowData.outcomeText,
+    sourceLabel: windowData.summary,
+    step: 0,
+    revealIdx: null,
+    autoPlaying: false,
+  };
+
+  document.getElementById('page').innerHTML =
+    '<div class="learn-player">' +
+      '<div class="pg-hdr">' +
+        '<div class="pg-hdr-inner">' +
+          '<a class="back-btn" onclick="nav(\'learning\')">← Learning</a>' +
+          '<div class="pg-hdr-center"><span class="pg-title">' + lesson.copy.title + '</span>' + pill(lesson.regime) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="learn-layout">' +
+        '<div class="learn-chart-shell">' +
+          '<div class="learn-chart-head">' +
+            '<div class="learn-meta"><span><strong>Source</strong> ' + windowData.summary + '</span><span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span></div>' +
+          '</div>' +
+          '<div class="learn-step-copy" id="learn-step-copy"></div>' +
+          '<div class="learn-chart-stage"><div id="learn-chart"></div><div id="learn-chart-volume"></div><div id="learn-chart-rsi"></div></div>' +
+          '<div id="learn-chart-legend"></div>' +
+          '<div class="learn-playbar">' +
+            '<div class="learn-playbar-inner">' +
+              '<div class="learn-play-controls">' +
+                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) - 1, {animate:false})">Prev</button>' +
+                '<button class="learn-btn" id="learn-play-btn" onclick="toggleLearningAutoplay()">Play</button>' +
+                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) + 1, {animate:true})">Next</button>' +
+                '<button class="learn-btn alt" onclick="replayLearningTrigger()">Replay Trigger</button>' +
+              '</div>' +
+              '<div class="learn-play-steps"><div class="learn-step-pills" id="learn-step-pills"></div></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  setLearningStep(0, {animate:false});
+}
+
+function renderLearningChrome() {
+  const state = _learningState;
+  if (!state) return;
+  const steps = learningStepMeta(state);
+  const step = steps[state.step] || steps[0];
+  const playBtn = document.getElementById('learn-play-btn');
+  if (playBtn) playBtn.textContent = state.autoPlaying ? 'Pause' : 'Play';
+
+  const pills = document.getElementById('learn-step-pills');
+  if (pills) {
+    pills.innerHTML = steps.map((s, idx) =>
+      '<button class="learn-step-pill ' + (idx === state.step ? 'active' : '') + '" onclick="setLearningStep(' + idx + ', {animate:' + ((idx === 1 || idx === 2) ? 'true' : 'false') + '})">' + s.title + '</button>'
+    ).join('');
+  }
+
+  const copyEl = document.getElementById('learn-step-copy');
+  if (!copyEl) return;
+  copyEl.innerHTML =
+    '<div class="kicker">' + learningRegimeMeta(state.lesson.regime).title + ' lesson</div>' +
+    '<div class="title">' + step.title + '</div>' +
+    '<div class="text">' + step.text + '</div>';
+}
+
+function setLearningStep(nextStep, opts={}) {
+  const state = _learningState;
+  if (!state) return;
+  const steps = learningStepMeta(state);
+  const maxStep = steps.length - 1;
+  state.step = Math.max(0, Math.min(maxStep, nextStep));
+  state.revealIdx = null;
+  renderLearningChrome();
+  if (state.step === 1 && opts.animate !== false) animateLearningTrigger();
+  else renderLearningChart();
+}
+
+function animateLearningTrigger() {
+  const state = _learningState;
+  if (!state) return;
+  clearLearningTimers();
+  const startIdx = Math.max(state.baseIdx, state.entryIdx - 4);
+  const finalIdx = state.entryIdx;
+  const tick = idx => {
+    if (!_learningState || _learningState !== state) return;
+    state.revealIdx = idx;
+    renderLearningChart();
+    if (idx < finalIdx) _learningTimer = setTimeout(() => tick(idx + 1), 320);
+  };
+  tick(startIdx);
+}
+
+function replayLearningTrigger() {
+  if (!_learningState) return;
+  setLearningStep(1, {animate:true});
+}
+
+function toggleLearningAutoplay() {
+  const state = _learningState;
+  if (!state) return;
+  state.autoPlaying = !state.autoPlaying;
+  renderLearningChrome();
+  clearLearningTimers();
+  if (!state.autoPlaying) return;
+  const advance = () => {
+    if (!_learningState || !_learningState.autoPlaying) return;
+    if (_learningState.step >= learningStepMeta(_learningState).length - 1) {
+      _learningState.autoPlaying = false;
+      renderLearningChrome();
+      return;
+    }
+    const next = _learningState.step + 1;
+    setLearningStep(next, {animate: next === 1});
+    const delay = next === 1 ? 2600 : 2200;
+    _learningAutoTimer = setTimeout(advance, delay);
+  };
+  advance();
+}
+
+function renderLearningChart() {
+  const state = _learningState;
+  if (!state) return;
+  _charts.forEach(c => { try { c.remove(); } catch(_) {} });
+  _charts = [];
+
+  const chartEl = document.getElementById('learn-chart');
+  const volEl = document.getElementById('learn-chart-volume');
+  const rsiEl = document.getElementById('learn-chart-rsi');
+  if (!chartEl) return;
+
+  const steps = learningStepMeta(state);
+  const step = steps[state.step] || steps[0];
+  const endIdx = (state.step === 1 || state.step === 2) && state.revealIdx != null ? state.revealIdx : step.focusEnd;
+  const startIdx = state.baseIdx || 0;
+  const isAnimatedReplay = state.step === 1 || state.step === 2;
+  const windowBars = step.showOutcome ? 64 : 52;
+  const rightPad = isAnimatedReplay ? 0 : (step.showOutcome ? 10 : 8);
+  const minStartIdx = isAnimatedReplay ? 0 : startIdx;
+  let visibleStartIdx = Math.max(minStartIdx, endIdx - (windowBars - rightPad - 1));
+  if (!isAnimatedReplay && (step.showLevels || step.showOutcome) && state.entryIdx < visibleStartIdx) {
+    const candidateStart = Math.max(startIdx, state.entryIdx - 14);
+    if ((endIdx + rightPad - candidateStart + 1) <= windowBars) {
+      visibleStartIdx = candidateStart;
+    }
+  }
+  const visibleEndIdx = isAnimatedReplay
+    ? endIdx
+    : Math.min(state.bars.length - 1, Math.max(endIdx + rightPad, visibleStartIdx + windowBars - 1));
+  const visibleBars = state.bars.slice(visibleStartIdx, visibleEndIdx + 1);
+  const legend = [];
+  const showVolume = state.lesson.showVolumePanel;
+  const showRsi = state.lesson.showRsiPanel;
+  if (volEl) volEl.style.display = showVolume ? 'block' : 'none';
+  if (rsiEl) rsiEl.style.display = showRsi ? 'block' : 'none';
+
+  const base = {
+    layout:   { background:{type:'Solid',color:'#ffffff'}, textColor:'#656d76' },
+    grid:     { vertLines:{color:'#eaeef2'}, horzLines:{color:'#eaeef2'} },
+    crosshair:{ mode: 1 },
+    rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.08, bottom:0.15} },
+    timeScale: { borderColor:'#d0d7de', timeVisible:true },
+    autoSize: true,
+  };
+  const chart = LightweightCharts.createChart(chartEl, base);
+  _charts.push(chart);
+
+  const candle = chart.addCandlestickSeries({
+    upColor:'#1a7f37', downColor:'#cf222e',
+    borderUpColor:'#1a7f37', borderDownColor:'#cf222e',
+    wickUpColor:'#1a7f37', wickDownColor:'#cf222e',
+  });
+  candle.setData(visibleBars);
+
+  const sliceSeries = series => series.slice(visibleStartIdx, visibleEndIdx + 1);
+  const addGuideLine = (price, color, title) => {
+    if (price == null) return;
+    candle.createPriceLine({
+      price,
+      color,
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title,
+    });
+  };
+  addLine(chart, sliceSeries(calcEMA(state.bars,10)), '#1a7f37', 1.6);
+  addLine(chart, sliceSeries(calcSMA(state.bars,50)), '#cf222e', 1.6);
+  addLine(chart, sliceSeries(calcSMA(state.bars,200)), '#111111', 1.6);
+  legend.push({c:'#1a7f37',l:'EMA10'}, {c:'#cf222e',l:'SMA50'}, {c:'#111111',l:'SMA200'});
+
+  const ip = state.lesson.strategy.indicator_params || {};
+  if (state.lesson.id === 'ma_cross') {
+    const f = ip.ma_fast || 10, s = ip.ma_slow || 20;
+    if (f !== 10) { addLine(chart, sliceSeries(calcEMA(state.bars, f)), '#d97706', 1.4); legend.push({c:'#d97706',l:'EMA'+f}); }
+    if (s !== 50 && s !== 200) { addLine(chart, sliceSeries(calcSMA(state.bars, s)), '#0969da', 1.4); legend.push({c:'#0969da',l:'SMA'+s}); }
+  } else if (state.lesson.id === 'bb_squeeze') {
+    const bb = calcBB(state.bars, ip.bb_period || 20, ip.bb_mult || 2.0);
+    const kc = calcKC(state.bars, ip.kc_mult || 2.0);
+    addLine(chart, sliceSeries(bb.upper), '#7c3aed', 1.1, true);
+    addLine(chart, sliceSeries(bb.lower), '#7c3aed', 1.1, true);
+    addLine(chart, sliceSeries(kc.upper), '#c2410c', 1.1, true);
+    addLine(chart, sliceSeries(kc.lower), '#c2410c', 1.1, true);
+    legend.push({c:'#7c3aed',l:'BB'}, {c:'#c2410c',l:'KC'});
+  }
+
+  const structureMarkers = [];
+  if (state.lesson.id === 'pivot_breakout') {
+    const pivotGuide = learningPivotBreakoutGuide(state, visibleStartIdx, visibleEndIdx);
+    if (pivotGuide) {
+      addLine(chart, pivotGuide, '#d97706', 2, true);
+      legend.push({c:'#d97706',l:'Breakout level'});
+    }
+  } else if (state.lesson.id === 'trendline_breakout') {
+    const trendlineGuide = learningTrendlineBreakoutGuide(state, visibleStartIdx, visibleEndIdx);
+    if (trendlineGuide && trendlineGuide.points.length) {
+      addLine(chart, trendlineGuide.points, '#d97706', 2, false);
+      legend.push({c:'#d97706',l:'Breakout trendline'});
+      if (trendlineGuide.anchor.idx >= visibleStartIdx && trendlineGuide.anchor.idx <= visibleEndIdx) {
+        structureMarkers.push({time:state.bars[trendlineGuide.anchor.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Anchor'});
+      }
+      if (trendlineGuide.pivot.idx >= visibleStartIdx && trendlineGuide.pivot.idx <= visibleEndIdx) {
+        structureMarkers.push({time:state.bars[trendlineGuide.pivot.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Pivot'});
+      }
+    }
+  }
+
+  if (showVolume && volEl) {
+    const volChart = LightweightCharts.createChart(volEl, {
+      ...base,
+      rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.12, bottom:0.05}, visible:true },
+      timeScale: {...base.timeScale, visible:false},
+      autoSize: true,
+    });
+    _charts.push(volChart);
+    const volSeries = volChart.addHistogramSeries({
+      color:'#d0d7de', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
+    });
+    volSeries.setData(visibleBars.map(b => ({
+      time: b.time,
+      value: b.volume || 0,
+      color: b.close >= b.open ? '#b7e5c6' : '#ffc1bd',
+    })));
+    const volMa = volChart.addLineSeries({
+      color:'#9a6700', lineWidth:1.5, priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
+    });
+    volMa.setData(sliceSeries(calcVolumeSMA(state.bars, 20)));
+    legend.push({c:'#9a6700',l:'Vol MA20'});
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) volChart.timeScale().setVisibleRange(r); });
+  }
+
+  if (showRsi && rsiEl) {
+    const rsiChart = LightweightCharts.createChart(rsiEl, {
+      ...base,
+      height: 80,
+      timeScale: {...base.timeScale, visible:false},
+    });
+    _charts.push(rsiChart);
+    const period = ip.rsi_period || 14;
+    const threshold = ip.rsi_threshold || 40;
+    const rsiSeries = rsiChart.addLineSeries({color:'#7c3aed', lineWidth:1, priceLineVisible:false, lastValueVisible:false});
+    rsiSeries.setData(sliceSeries(calcRSI(state.bars, period)));
+    rsiSeries.createPriceLine({price:threshold, color:'#8c959f', lineWidth:1, lineStyle:2});
+    legend.push({c:'#7c3aed', l:'RSI(' + period + ')'});
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) rsiChart.timeScale().setVisibleRange(r); });
+  }
+
+  const markers = [...structureMarkers];
+  const entryBar = state.bars[state.entryIdx];
+  const exitBar = state.bars[Math.min(state.exitIdx, state.bars.length - 1)];
+  const exitEvents = state.position.exit_events || [];
+  if (step.showTrigger && entryBar && state.entryIdx <= endIdx) {
+    addGuideLine(state.position.entry_price, '#0969da', 'Trigger');
+    legend.push({c:'#0969da',l:'Trigger'});
+    markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'circle', text:'Trigger'});
+  }
+  if (step.showLevels) {
+    addGuideLine(state.position.stop_price, '#cf222e', 'Stop');
+    addGuideLine(state.position.tp1_price, '#9a6700', 'TP1');
+    legend.push({c:'#cf222e',l:'Stop'}, {c:'#9a6700',l:'TP1'});
+    if (state.position.tp2_price != null) {
+      addGuideLine(state.position.tp2_price, '#7c3aed', 'TP2');
+      legend.push({c:'#7c3aed',l:'TP2'});
+    }
+    if (entryBar && state.entryIdx <= endIdx) {
+      markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'arrowUp', text:'Entry'});
+    }
+  }
+  if (step.showLevels) {
+    exitEvents.forEach((event, idx) => {
+      const bar = state.bars[event.idx];
+      if (!bar || event.idx > endIdx) return;
+      const isFinal = idx === exitEvents.length - 1;
+      markers.push({
+        time: bar.time,
+        position: 'aboveBar',
+        color: isFinal ? '#111111' : '#9a6700',
+        shape: 'arrowDown',
+        text: exitLbl(event.reason),
+      });
+    });
+  }
+  if (step.showOutcome && exitBar && state.exitIdx <= endIdx && !exitEvents.length) {
+    markers.push({time:exitBar.time, position:'aboveBar', color:'#111111', shape:'arrowDown', text:exitLbl(state.position.exit_reason || 'exit')});
+  }
+
+  candle.setMarkers(markers.sort((a,b) => a.time < b.time ? -1 : 1));
+  chart.timeScale().fitContent();
+
+  const legEl = document.getElementById('learn-chart-legend');
+  if (legEl) legEl.innerHTML = legend.map(i => '<div class="leg"><div class="leg-line" style="background:' + i.c + '"></div>' + i.l + '</div>').join('');
+}
+
+// Learning v2: mock curriculum only, no right-side data panel.
+function learningCopyForStrategy(id) {
+  const copy = {
+    pivot_breakout: {
+      title: 'Pivot Breakout',
+        summary: 'Real trade window that isolates a clean resistance break with a volume surge.',
+      setup: 'Price coils under a clear pivot high while the broader structure stays supportive.',
+      trigger: 'The setup becomes live only when the breakout candle trades through the trigger line.',
+      management: 'The stop stays under the structure and the first target pays for the breakout.',
+    },
+    trendline_breakout: {
+      title: 'Trendline Breakout',
+        summary: 'Real trade window with lower highs first, then a clean push through resistance.',
+      setup: 'Price presses against a falling ceiling instead of trying to bounce randomly inside weakness.',
+      trigger: 'Entry happens only when the breakout candle actually clears that ceiling.',
+      management: 'The stop stays below the reclaimed structure so failed breaks get cut quickly.',
+    },
+    pullback_buy: {
+      title: 'Pullback Buy',
+        summary: 'Real trade window that slows into support, then shows demand step back in.',
+      setup: 'The trend remains intact while price retraces into support instead of collapsing through it.',
+      trigger: 'Entry waits for the bounce candle to prove buyers are back in control.',
+      management: 'The stop protects against a failed pullback while the first target pays for the rebound.',
+    },
+    reversal: {
+      title: 'Reversal',
+        summary: 'Real trade window with a visible momentum washout followed by a controlled snapback.',
+      setup: 'Momentum gets stretched hard enough that an oversold bounce becomes statistically interesting.',
+      trigger: 'The trade activates only once price confirms the reversal attempt after the washout.',
+      management: 'Targets monetize the snapback while the stop keeps the trade honest if the bounce fails.',
+    },
+    bb_squeeze: {
+      title: 'BB Squeeze',
+        summary: 'Real trade window where Bollinger and Keltner envelopes visibly tighten before release.',
+      setup: 'Volatility compresses until the Bollinger Bands tuck inside the Keltner Channel.',
+      trigger: 'The lesson focuses on the release candle that actually expands out of the squeeze.',
+      management: 'Once expansion starts, the stop stays tight and the first target captures the initial burst.',
+    },
+    ma_cross: {
+      title: 'MA Cross',
+        summary: 'Real trade window built to make the momentum handoff easy to see.',
+      setup: 'The fast and slow averages converge while price stops making lower-quality momentum swings.',
+      trigger: 'Entry waits for price to confirm the moving-average shift rather than anticipating it.',
+      management: 'The stop sits below the reclaim zone and EMA10 helps show when the move stops behaving well.',
+    },
+  };
+  return copy[id] || {
+    title: sLabel(id),
+    summary: 'Real trade window focused on the core strategy pattern.',
+    setup: 'The setup step isolates the chart structure that must form before a trade is allowed.',
+    trigger: 'The trigger step shows the exact candle that activates the setup.',
+    management: 'The management step shows how entry, stop, and target are arranged.',
+  };
+}
+
+function learningRegimeMeta(regime) {
+  const meta = {
+    uptrend: {
+      title: 'Uptrend',
+      copy: 'These lessons use anonymized real windows for continuation setups that work best when trend structure is already healthy.',
+    },
+    choppy: {
+      title: 'Choppy',
+      copy: 'These lessons use anonymized real windows for setups that rely on compression or mean reversion when market is less directional.',
+    },
+    downtrend: {
+      title: 'Downtrend',
+      copy: 'These lessons use anonymized real windows for defensive breakout behaviour where structure has to prove itself before entry.',
+    },
+  };
+  return meta[regime] || {title: sLabel(regime), copy: ''};
+}
+
+function learningIndicatorSpecs(strategyId, lesson) {
+  const specs = [
+    {name:'EMA10', color:'#1a7f37', desc:'Exit guide. If price loses the short-term trend, the move is no longer behaving as expected.'},
+    {name:'SMA50', color:'#cf222e', desc:'Intermediate structure line. Helps frame whether price is operating in healthy trend space.'},
+    {name:'SMA200', color:'#111111', desc:'Long-term structure line. Keeps the lesson grounded in the broader market context.'},
+  ];
+  if (strategyId === 'reversal') specs.push({name:'RSI(' + ((lesson.indicator_params || {}).rsi_period || 14) + ')', color:'#7c3aed', desc:'Momentum stretch gauge. The setup wants price oversold enough to justify a bounce.'});
+  if (strategyId === 'bb_squeeze') {
+    specs.push({name:'Bollinger Bands', color:'#7c3aed', desc:'Show volatility compression and the expansion that follows the squeeze.'});
+    specs.push({name:'Keltner Channel', color:'#c2410c', desc:'Defines the squeeze condition by comparing ATR-based volatility against the Bollinger envelope.'});
+  }
+  if (strategyId === 'ma_cross') {
+    const ip = lesson.indicator_params || {};
+    specs.push({name:'EMA' + (ip.ma_fast || 10), color:'#d97706', desc:'Fast momentum line. The lesson shows when the fast line regains control.'});
+    if ((ip.ma_slow || 20) !== 50 && (ip.ma_slow || 20) !== 200) specs.push({name:'SMA' + (ip.ma_slow || 20), color:'#0969da', desc:'Slow trend filter. Confirms whether the fast line is aligned with the larger move.'});
+  }
+  if (strategyId === 'pivot_breakout' || strategyId === 'trendline_breakout') {
+    specs.push({name:'Trigger Line', color:'#0969da', desc:'The price level that must actually trade for the entry to become live.'});
+  }
+  if (strategyId === 'bb_squeeze' || strategyId === 'pivot_breakout' || strategyId === 'trendline_breakout') {
+    specs.push({name:'Volume / RVOL', color:'#9a6700', desc:'Used as participation confirmation. Breakouts without volume are lower quality.'});
+  }
+  return specs;
+}
+
+function learningPanelsForStrategy(strategyId) {
+  return {
+    showVolume: strategyId === 'pivot_breakout' || strategyId === 'trendline_breakout' || strategyId === 'bb_squeeze',
+    showRsi: strategyId === 'reversal',
+  };
+}
+
+function learningLerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function learningRamp(start, end, count, amp=0) {
+  return Array.from({length: count}, (_, i) => {
+    const t = count <= 1 ? 1 : i / (count - 1);
+    return +(learningLerp(start, end, t) + Math.sin(i * 0.9) * amp).toFixed(2);
+  });
+}
+
+function learningBusinessDates(count, start='2023-01-02') {
+  const out = [];
+  const d = new Date(start + 'T00:00:00Z');
+  while (out.length < count) {
+    const day = d.getUTCDay();
+    if (day !== 0 && day !== 6) out.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+function prependLearningHistory(pattern, regime) {
+  const first = pattern[0];
+  if (regime === 'uptrend') return learningRamp(first * 0.74, first, 180, first * 0.003);
+  if (regime === 'downtrend') return learningRamp(first * 1.28, first, 180, first * 0.004);
+  return Array.from({length: 180}, (_, i) => +(first + Math.sin(i / 4) * first * 0.018).toFixed(2));
+}
+
+function buildLearningBars(closes, volumes, overrides={}) {
+  const dates = learningBusinessDates(closes.length);
+  let prevClose = closes[0] * 0.994;
+  return closes.map((close, idx) => {
+    const open = idx === 0 ? close * 0.996 : prevClose + (close - prevClose) * 0.35;
+    const spread = Math.max(Math.abs(close - open) * 0.9, close * 0.012);
+    let bar = {
+      time: dates[idx],
+      open: +open.toFixed(2),
+      high: +(Math.max(open, close) + spread).toFixed(2),
+      low: +(Math.min(open, close) - spread).toFixed(2),
+      close: +close.toFixed(2),
+      volume: Math.round(volumes[idx] || 100000),
+    };
+    if (overrides[idx]) bar = {...bar, ...overrides[idx]};
+    prevClose = bar.close;
+    return bar;
+  });
+}
+
+function buildMockLearningLessons() {
+  const specs = [
+    {
+      id: 'pivot_breakout',
+      regime: 'uptrend',
+      focus: 'Break above a clean pivot high with participation.',
+      indicator_params: {},
+      pattern: [].concat(
+        learningRamp(76, 88, 14, 0.25),
+        [88.4, 88.9, 89.2, 89.0, 89.3, 89.1, 89.4, 89.25, 89.5, 89.35],
+        [89.6, 89.8, 89.7, 89.95, 90.1, 90.0],
+        [90.4, 90.9, 91.8, 92.9, 94.0, 95.2, 96.0, 96.8, 97.6, 98.3]
+      ),
+      volumes: [].concat(
+        Array(14).fill(120000),
+        Array(10).fill(105000),
+        [110000, 108000, 112000, 115000, 118000, 120000],
+        [160000, 210000, 280000, 250000, 220000, 200000, 185000, 175000, 168000, 160000]
+      ),
+      entryIdxLocal: 30,
+      exitIdxLocal: 37,
+      entryPrice: 90.4,
+      stopPrice: 88.6,
+      tp1Price: 95.2,
+      outcomeText: 'The mock breakout follows through quickly after the trigger candle. That is the behaviour this setup wants to see.',
+      overridesLocal: {
+        30: {open:89.95, low:89.72, high:90.58, close:90.4, volume:260000},
+        31: {open:90.35, low:90.18, high:91.1, close:90.9, volume:290000},
+      },
+    },
+    {
+      id: 'pullback_buy',
+      regime: 'uptrend',
+      focus: 'Buy the first clean rebound after a controlled pullback into support.',
+      indicator_params: {},
+      pattern: [].concat(
+        learningRamp(118, 132, 16, 0.35),
+        learningRamp(132, 124.4, 10, 0.2),
+        [124.2, 124.6, 124.9, 125.1, 125.4, 126.1, 127.0, 128.2, 129.4, 130.8, 132.1, 133.4]
+      ),
+      volumes: [].concat(
+        Array(16).fill(90000),
+        Array(10).fill(76000),
+        [72000, 74000, 76000, 78000, 82000, 88000, 92000, 98000, 102000, 108000, 110000, 112000]
+      ),
+      entryIdxLocal: 28,
+      exitIdxLocal: 35,
+      entryPrice: 125.1,
+      stopPrice: 123.6,
+      tp1Price: 130.8,
+      outcomeText: 'The mock rebound confirms that price held support first, then accelerated once buyers regained control.',
+      overridesLocal: {
+        28: {open:124.86, low:124.62, high:125.34, close:125.1},
+        29: {open:125.02, low:124.94, high:125.72, close:125.4},
+      },
+    },
+    {
+      id: 'ma_cross',
+      regime: 'uptrend',
+      focus: 'Wait for the fast average to reclaim control and price to confirm the shift.',
+      indicator_params: {ma_fast: 10, ma_slow: 20},
+      pattern: [].concat(
+        learningRamp(86, 82.5, 12, 0.18),
+        [82.4, 82.2, 82.15, 82.05, 82.1, 82.18, 82.22, 82.28],
+        learningRamp(82.3, 88.6, 16, 0.22),
+        [89.0, 89.5, 90.1, 90.6]
+      ),
+      volumes: [].concat(
+        Array(12).fill(78000),
+        Array(8).fill(72000),
+        Array(16).fill(86000),
+        [92000, 94000, 98000, 100000]
+      ),
+      entryIdxLocal: 23,
+      exitIdxLocal: 34,
+      entryPrice: 82.55,
+      stopPrice: 81.6,
+      tp1Price: 87.4,
+      outcomeText: 'The move does not start with a random crossover. It starts once price confirms that the new MA alignment has real momentum behind it.',
+      overridesLocal: {
+        23: {open:82.28, low:82.14, high:82.72, close:82.55},
+      },
+    },
+    {
+      id: 'reversal',
+      regime: 'choppy',
+      focus: 'Buy only after the oversold stretch starts to reverse, not during the panic leg itself.',
+      indicator_params: {rsi_period: 14, rsi_threshold: 40},
+      pattern: [].concat(
+        [108.5, 108.2, 107.9, 107.3, 106.8, 105.9, 104.8, 103.4, 102.1, 100.8, 99.6, 98.8],
+        [98.2, 97.8, 97.5, 97.2, 97.1, 97.35],
+        [97.8, 98.6, 99.3, 100.2, 101.0, 101.8, 102.4, 102.1, 101.6, 101.2]
+      ),
+      volumes: [].concat(
+        [92000, 95000, 98000, 104000, 112000, 122000, 132000, 144000, 152000, 166000, 174000, 182000],
+        [186000, 188000, 190000, 196000, 201000, 182000],
+        [168000, 156000, 148000, 140000, 132000, 124000, 118000, 112000, 108000, 104000]
+      ),
+      entryIdxLocal: 18,
+      exitIdxLocal: 24,
+      entryPrice: 97.8,
+      stopPrice: 96.7,
+      tp1Price: 101.0,
+      outcomeText: 'The mock reversal waits for the bounce to prove itself. The oversold reading matters, but the trigger still has to come from price.',
+      overridesLocal: {
+        18: {open:97.32, low:97.18, high:97.98, close:97.8, volume:175000},
+      },
+    },
+    {
+      id: 'bb_squeeze',
+      regime: 'choppy',
+      focus: 'Let volatility compress first, then react only when the expansion candle actually breaks free.',
+      indicator_params: {bb_period: 20, bb_mult: 2.0, kc_mult: 1.5},
+      pattern: [].concat(
+        learningRamp(74.8, 75.9, 10, 0.08),
+        [75.82, 75.88, 75.84, 75.9, 75.86, 75.92, 75.87, 75.91, 75.89, 75.93, 75.9, 75.94],
+        [76.05, 76.4, 77.2, 78.6, 80.1, 81.4, 82.0, 82.3]
+      ),
+      volumes: [].concat(
+        Array(10).fill(84000),
+        Array(12).fill(62000),
+        [70000, 76000, 98000, 132000, 168000, 154000, 140000, 128000]
+      ),
+      entryIdxLocal: 24,
+      exitIdxLocal: 29,
+      entryPrice: 76.05,
+      stopPrice: 75.4,
+      tp1Price: 80.1,
+      outcomeText: 'The squeeze lesson is about patience. The chart stays quiet first, then the expansion candle does the work of confirmation for you.',
+      overridesLocal: {
+        24: {open:75.94, low:75.82, high:76.18, close:76.05, volume:98000},
+        25: {open:76.02, low:75.98, high:76.58, close:76.4, volume:126000},
+      },
+    },
+    {
+      id: 'trendline_breakout',
+      regime: 'downtrend',
+      focus: 'Require price to reclaim a falling ceiling before assuming the market has changed character.',
+      indicator_params: {},
+      pattern: [].concat(
+        learningRamp(58.5, 51.2, 14, 0.3),
+        [51.0, 50.7, 50.5, 50.3, 50.2, 50.1, 50.0, 49.95, 49.9],
+        [50.1, 50.35, 50.6, 51.1, 51.9, 52.8, 53.5, 54.0, 54.4]
+      ),
+      volumes: [].concat(
+        Array(14).fill(98000),
+        Array(9).fill(76000),
+        [80000, 84000, 90000, 120000, 156000, 178000, 164000, 150000, 142000]
+      ),
+      entryIdxLocal: 26,
+      exitIdxLocal: 31,
+      entryPrice: 51.1,
+      stopPrice: 49.85,
+      tp1Price: 53.5,
+      outcomeText: 'This mock lesson shows why the engine waits for a real break of structure instead of trying to catch every weak bounce in a downtrend.',
+      overridesLocal: {
+        26: {open:50.58, low:50.42, high:51.26, close:51.1, volume:122000},
+      },
+    },
+  ];
+
+  return specs.map(spec => {
+    const history = prependLearningHistory(spec.pattern, spec.regime);
+    const closes = history.concat(spec.pattern);
+    const volumes = Array(history.length).fill(Math.round((spec.volumes[0] || 100000) * 0.85)).concat(spec.volumes);
+    const offset = history.length;
+    const overrides = {};
+    Object.entries(spec.overridesLocal || {}).forEach(([idx, bar]) => {
+      overrides[offset + Number(idx)] = bar;
+    });
+    const bars = buildLearningBars(closes, volumes, overrides);
+    const copy = learningCopyForStrategy(spec.id);
+    const panels = learningPanelsForStrategy(spec.id);
+    return {
+      id: spec.id,
+      regime: spec.regime,
+      copy,
+      focus: spec.focus,
+      bars,
+      entryIdx: offset + spec.entryIdxLocal,
+      exitIdx: offset + spec.exitIdxLocal,
+      indicator_params: spec.indicator_params || {},
+      indicators: learningIndicatorSpecs(spec.id, {indicator_params: spec.indicator_params || {}}),
+      showVolumePanel: panels.showVolume,
+      showRsiPanel: panels.showRsi,
+      outcomeText: spec.outcomeText,
+      position: {
+        entry_price: spec.entryPrice,
+        stop_price: spec.stopPrice,
+        tp1_price: spec.tp1Price,
+        tp2_price: spec.tp2Price == null ? null : spec.tp2Price,
+        exit_reason: spec.tp2Price != null ? 'tp2' : 'tp1',
+      },
+    };
+  }).sort((a, b) => {
+    const aKey = a.copy.title + '|' + a.regime;
+    const bKey = b.copy.title + '|' + b.regime;
+    return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
+  });
+}
+
+function collectLearningLessons() {
+  if (!_learningLessonCatalog) _learningLessonCatalog = buildMockLearningLessons();
+  return _learningLessonCatalog;
+}
+
+function renderLearningHome() {
+  const lessons = collectLearningLessons();
+  const regimes = ['uptrend', 'choppy', 'downtrend'];
+  const sections = regimes.map(regime => {
+    const items = lessons.filter(lesson => lesson.regime === regime);
+    if (!items.length) return '';
+    const meta = learningRegimeMeta(regime);
+    const cards = items.map(lesson =>
+      '<div class="learn-card">' +
+        '<div class="learn-card-top">' +
+          '<h3>' + lesson.copy.title + '</h3>' +
+          '<span class="learn-chip ' + regime + '">' + meta.title + '</span>' +
+        '</div>' +
+        '<div class="learn-copy">' + lesson.copy.summary + '</div>' +
+        '<div class="learn-meta">' +
+          '<span><strong>Mode</strong> Mock lesson</span>' +
+          '<span><strong>Focus</strong> ' + lesson.focus + '</span>' +
+          '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span>' +
+        '</div>' +
+        '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
+      '</div>'
+    ).join('');
+    return '<section class="learn-section">' +
+      '<div class="learn-section-head"><div><h3>' + meta.title + '</h3><div class="learn-section-copy">' + meta.copy + '</div></div></div>' +
+      '<div class="learn-grid">' + cards + '</div>' +
+    '</section>';
+  }).join('');
+
+  document.getElementById('page').innerHTML =
+    '<div class="learn-home">' +
+      '<div class="learn-intro">' +
+        '<div><h2>Learning</h2><p>Start with the market regime, then learn the strategy through mock market data built only to teach the setup. These lessons do not depend on chart-export or live backtest examples.</p></div>' +
+      '</div>' +
+      sections +
+    '</div>';
+}
+
+function learningStepMeta(state) {
+  const copy = state.lesson.copy;
+  const triggerIdx = state.entryIdx;
+  const setupEnd = Math.max(Math.min(triggerIdx - 3, state.bars.length - 1), Math.min(16, state.bars.length - 1));
+  return [
+    {
+      title: '1. Setup',
+      text: copy.setup,
+      focusEnd: setupEnd,
+      showTrigger: false,
+      showLevels: false,
+      showOutcome: false,
+    },
+    {
+      title: '2. Trigger',
+      text: copy.trigger,
+      focusEnd: triggerIdx,
+      showTrigger: true,
+      showLevels: false,
+      showOutcome: false,
+    },
+    {
+      title: '3. Risk & Target',
+      text: copy.management,
+      focusEnd: Math.min(state.bars.length - 1, Math.max(triggerIdx + 6, triggerIdx)),
+      showTrigger: true,
+      showLevels: true,
+      showOutcome: false,
+    },
+    {
+      title: '4. Outcome',
+      text: state.lesson.outcomeText || 'The chart now extends through the planned outcome so you can see how the setup is meant to behave after entry.',
+      focusEnd: Math.min(state.bars.length - 1, Math.max(state.exitIdx + 4, triggerIdx + 8)),
+      showTrigger: true,
+      showLevels: true,
+      showOutcome: true,
+    },
+  ];
+}
+
+async function renderLearningLesson(stratId, regime) {
+  const lesson = collectLearningLessons().find(x => x.id === stratId && x.regime === regime);
+  if (!lesson) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Lesson not found.</div>';
+    return;
+  }
+  document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading lesson...</div>';
+
+  try {
+    await ensureChartLibrary();
+  } catch (err) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson chart library: ' + err.message + '</div>';
+    return;
+  }
+
+  _learningState = {
+    lesson,
+    bars: lesson.bars,
+    entryIdx: lesson.entryIdx,
+    exitIdx: lesson.exitIdx,
+    position: lesson.position,
+    step: 0,
+    revealIdx: null,
+    autoPlaying: false,
+  };
+
+  document.getElementById('page').innerHTML =
+    '<div class="learn-player">' +
+      '<div class="pg-hdr">' +
+        '<div class="pg-hdr-inner">' +
+          '<a class="back-btn" onclick="nav(\'learning\')">← Learning</a>' +
+          '<div class="pg-hdr-center"><span class="pg-title">' + lesson.copy.title + '</span>' + pill(lesson.regime) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="learn-layout">' +
+        '<div class="learn-chart-shell">' +
+          '<div class="learn-chart-head">' +
+            '<div class="learn-meta"><span><strong>Mode</strong> Mock lesson</span><span><strong>Focus</strong> ' + lesson.focus + '</span><span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span></div>' +
+          '</div>' +
+          '<div class="learn-step-copy" id="learn-step-copy"></div>' +
+          '<div class="learn-chart-stage"><div id="learn-chart"></div><div id="learn-chart-volume"></div><div id="learn-chart-rsi"></div></div>' +
+          '<div id="learn-chart-legend"></div>' +
+          '<div class="learn-playbar">' +
+            '<div class="learn-playbar-inner">' +
+              '<div class="learn-play-controls">' +
+                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) - 1, {animate:false})">Prev</button>' +
+                '<button class="learn-btn" id="learn-play-btn" onclick="toggleLearningAutoplay()">Play</button>' +
+                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) + 1, {animate:true})">Next</button>' +
+                '<button class="learn-btn alt" onclick="replayLearningTrigger()">Replay Trigger</button>' +
+              '</div>' +
+              '<div class="learn-play-steps"><div class="learn-step-pills" id="learn-step-pills"></div></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  setLearningStep(0, {animate:false});
+}
+
+function renderLearningChrome() {
+  const state = _learningState;
+  if (!state) return;
+  const steps = learningStepMeta(state);
+  const step = steps[state.step] || steps[0];
+  const playBtn = document.getElementById('learn-play-btn');
+  if (playBtn) playBtn.textContent = state.autoPlaying ? 'Pause' : 'Play';
+
+  const pills = document.getElementById('learn-step-pills');
+  if (pills) {
+    pills.innerHTML = steps.map((s, idx) =>
+      '<button class="learn-step-pill ' + (idx === state.step ? 'active' : '') + '" onclick="setLearningStep(' + idx + ', {animate:' + ((idx === 1 || idx === 2) ? 'true' : 'false') + '})">' + s.title + '</button>'
+    ).join('');
+  }
+
+  const copyEl = document.getElementById('learn-step-copy');
+  if (!copyEl) return;
+  copyEl.innerHTML =
+    '<div class="kicker">' + learningRegimeMeta(state.lesson.regime).title + ' lesson</div>' +
+    '<div class="title">' + step.title + '</div>' +
+    '<div class="text">' + step.text + '</div>';
+}
+
+function setLearningStep(nextStep, opts={}) {
+  const state = _learningState;
+  if (!state) return;
+  const steps = learningStepMeta(state);
+  const maxStep = steps.length - 1;
+  state.step = Math.max(0, Math.min(maxStep, nextStep));
+  state.revealIdx = null;
+  renderLearningChrome();
+  if (state.step === 1 && opts.animate !== false) animateLearningTrigger();
+  else renderLearningChart();
+}
+
+function animateLearningTrigger() {
+  const state = _learningState;
+  if (!state) return;
+  clearLearningTimers();
+  const startIdx = Math.max(0, state.entryIdx - 4);
+  const finalIdx = state.entryIdx;
+  const tick = idx => {
+    if (!_learningState || _learningState !== state) return;
+    state.revealIdx = idx;
+    renderLearningChart();
+    if (idx < finalIdx) _learningTimer = setTimeout(() => tick(idx + 1), 320);
+  };
+  tick(startIdx);
+}
+
+function replayLearningTrigger() {
+  if (!_learningState) return;
+  setLearningStep(1, {animate:true});
+}
+
+function toggleLearningAutoplay() {
+  const state = _learningState;
+  if (!state) return;
+  state.autoPlaying = !state.autoPlaying;
+  renderLearningChrome();
+  clearLearningTimers();
+  if (!state.autoPlaying) return;
+  const advance = () => {
+    if (!_learningState || !_learningState.autoPlaying) return;
+    if (_learningState.step >= learningStepMeta(_learningState).length - 1) {
+      _learningState.autoPlaying = false;
+      renderLearningChrome();
+      return;
+    }
+    const next = _learningState.step + 1;
+    setLearningStep(next, {animate: next === 1});
+    const delay = next === 1 ? 2600 : 2200;
+    _learningAutoTimer = setTimeout(advance, delay);
+  };
+  advance();
+}
+
+function renderLearningChart() {
+  const state = _learningState;
+  if (!state) return;
+  _charts.forEach(c => { try { c.remove(); } catch(_) {} });
+  _charts = [];
+
+  const chartEl = document.getElementById('learn-chart');
+  const volEl = document.getElementById('learn-chart-volume');
+  const rsiEl = document.getElementById('learn-chart-rsi');
+  if (!chartEl) return;
+
+  const steps = learningStepMeta(state);
+  const step = steps[state.step] || steps[0];
+  const endIdx = (state.step === 1 || state.step === 2) && state.revealIdx != null ? state.revealIdx : step.focusEnd;
+  const visibleBars = state.bars.slice(0, Math.max(1, endIdx + 1));
+  const legend = [];
+  const showVolume = state.lesson.showVolumePanel;
+  const showRsi = state.lesson.showRsiPanel;
+  if (volEl) volEl.style.display = showVolume ? 'block' : 'none';
+  if (rsiEl) rsiEl.style.display = showRsi ? 'block' : 'none';
+
+  const base = {
+    layout:   { background:{type:'Solid',color:'#ffffff'}, textColor:'#656d76' },
+    grid:     { vertLines:{color:'#eaeef2'}, horzLines:{color:'#eaeef2'} },
+    crosshair:{ mode: 1 },
+    rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.08, bottom:0.15} },
+    timeScale: { borderColor:'#d0d7de', timeVisible:true },
+    autoSize: true,
+  };
+  const chart = LightweightCharts.createChart(chartEl, base);
+  _charts.push(chart);
+
+  const candle = chart.addCandlestickSeries({
+    upColor:'#1a7f37', downColor:'#cf222e',
+    borderUpColor:'#1a7f37', borderDownColor:'#cf222e',
+    wickUpColor:'#1a7f37', wickDownColor:'#cf222e',
+  });
+  candle.setData(visibleBars);
+
+  addLine(chart, calcEMA(visibleBars,10), '#1a7f37', 1.6);
+  addLine(chart, calcSMA(visibleBars,50), '#cf222e', 1.6);
+  addLine(chart, calcSMA(visibleBars,200), '#111111', 1.6);
+  legend.push({c:'#1a7f37',l:'EMA10'}, {c:'#cf222e',l:'SMA50'}, {c:'#111111',l:'SMA200'});
+
+  const ip = state.lesson.indicator_params || {};
+  if (state.lesson.id === 'ma_cross') {
+    const f = ip.ma_fast || 10, s = ip.ma_slow || 20;
+    if (f !== 10) { addLine(chart, calcEMA(visibleBars, f), '#d97706', 1.4); legend.push({c:'#d97706',l:'EMA'+f}); }
+    if (s !== 50 && s !== 200) { addLine(chart, calcSMA(visibleBars, s), '#0969da', 1.4); legend.push({c:'#0969da',l:'SMA'+s}); }
+  } else if (state.lesson.id === 'bb_squeeze') {
+    const bb = calcBB(visibleBars, ip.bb_period || 20, ip.bb_mult || 2.0);
+    const kc = calcKC(visibleBars, ip.kc_mult || 1.5);
+    addLine(chart, bb.upper, '#7c3aed', 1.1, true);
+    addLine(chart, bb.lower, '#7c3aed', 1.1, true);
+    addLine(chart, kc.upper, '#c2410c', 1.1, true);
+    addLine(chart, kc.lower, '#c2410c', 1.1, true);
+    legend.push({c:'#7c3aed',l:'BB'}, {c:'#c2410c',l:'KC'});
+  }
+
+  if (showVolume && volEl) {
+    const volChart = LightweightCharts.createChart(volEl, {
+      ...base,
+      rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.12, bottom:0.05}, visible:true },
+      timeScale: {...base.timeScale, visible:false},
+      autoSize: true,
+    });
+    _charts.push(volChart);
+    const volSeries = volChart.addHistogramSeries({
+      color:'#d0d7de', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
+    });
+    volSeries.setData(visibleBars.map(b => ({
+      time: b.time,
+      value: b.volume || 0,
+      color: b.close >= b.open ? '#b7e5c6' : '#ffc1bd',
+    })));
+    const volMa = volChart.addLineSeries({
+      color:'#9a6700', lineWidth:1.5, priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
+    });
+    volMa.setData(calcVolumeSMA(visibleBars, 20));
+    legend.push({c:'#9a6700',l:'Vol MA20'});
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) volChart.timeScale().setVisibleRange(r); });
+  }
+
+  if (showRsi && rsiEl) {
+    const rsiChart = LightweightCharts.createChart(rsiEl, {
+      ...base,
+      height: 80,
+      timeScale: {...base.timeScale, visible:false},
+    });
+    _charts.push(rsiChart);
+    const period = ip.rsi_period || 14;
+    const threshold = ip.rsi_threshold || 40;
+    const rsiSeries = rsiChart.addLineSeries({color:'#7c3aed', lineWidth:1, priceLineVisible:false, lastValueVisible:false});
+    rsiSeries.setData(calcRSI(visibleBars, period));
+    rsiSeries.createPriceLine({price:threshold, color:'#8c959f', lineWidth:1, lineStyle:2});
+    legend.push({c:'#7c3aed', l:'RSI(' + period + ')'});
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) rsiChart.timeScale().setVisibleRange(r); });
+  }
+
+  const markers = [];
+  const entryBar = state.bars[state.entryIdx];
+  const exitBar = state.bars[Math.min(state.exitIdx, visibleBars.length - 1)];
+  if (step.showTrigger && entryBar && state.entryIdx < visibleBars.length) {
+    addLine(chart, constantLineData(visibleBars, state.position.entry_price), '#0969da', 1.3, true);
+    legend.push({c:'#0969da',l:'Trigger'});
+    markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'circle', text:'Trigger'});
+  }
+  if (step.showLevels) {
+    addLine(chart, constantLineData(visibleBars, state.position.stop_price), '#cf222e', 1.1, true);
+    addLine(chart, constantLineData(visibleBars, state.position.tp1_price), '#9a6700', 1.1, true);
+    legend.push({c:'#cf222e',l:'Stop'}, {c:'#9a6700',l:'TP1'});
+    if (state.position.tp2_price != null) {
+      addLine(chart, constantLineData(visibleBars, state.position.tp2_price), '#7c3aed', 1.1, true);
+      legend.push({c:'#7c3aed',l:'TP2'});
+    }
+    if (entryBar && state.entryIdx < visibleBars.length) {
+      markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'arrowUp', text:'Entry'});
+    }
+  }
+  if (step.showOutcome && exitBar && state.exitIdx < visibleBars.length) {
+    markers.push({time:exitBar.time, position:'aboveBar', color:'#111111', shape:'arrowDown', text:exitLbl(state.position.exit_reason || 'exit')});
+  }
+
+  candle.setMarkers(markers.sort((a,b) => a.time < b.time ? -1 : 1));
+  chart.timeScale().fitContent();
+
+  const legEl = document.getElementById('learn-chart-legend');
+  if (legEl) legEl.innerHTML = legend.map(i => '<div class="leg"><div class="leg-line" style="background:' + i.c + '"></div>' + i.l + '</div>').join('');
+}
+
+function constantLineData(bars, price) {
+  return (bars || []).map(b => ({time:b.time, value:price}));
+}
+
 /* ── STRATEGY DETAIL ─────────────────────────────── */
 function renderStrategyDetail(stratId, regime) {
+  if (DISABLED_STRATEGY_IDS.has(stratId)) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Not found.</div>';
+    return;
+  }
   const data  = currentData();
-  const strat = ((data && data.strategies)||[]).find(s => s.id===stratId && s.regime===regime);
+  const strat = ((data && data.strategies)||[]).filter(isVisibleStrategy).find(s => s.id===stratId && s.regime===regime);
   const rm    = ((data && data.regime_map)||{})[stratId+'|'+regime] || {};
   if (!strat && !rm.calmar) {
     document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Not found.</div>';
@@ -807,19 +2837,37 @@ function row(k, v, d) {
 }
 
 /* ── SYMBOL CHART ────────────────────────────────── */
-function renderSymbolChart(stratId, regime, symbol) {
+async function renderSymbolChart(stratId, regime, symbol) {
+  if (DISABLED_STRATEGY_IDS.has(stratId)) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Not found.</div>';
+    return;
+  }
   const data    = currentData();
-  const strats  = ((data && data.strategies) || []).filter(s => s.id === stratId);
+  const strats  = ((data && data.strategies) || []).filter(isVisibleStrategy).filter(s => s.id === stratId);
   const strat   = regime
     ? strats.find(s => s.regime === regime)
     : strats.find(s => (s.symbols || []).some(row => row.symbol === symbol)) || strats[0];
   const symData = strat ? (strat.symbols||[]).find(s => s.symbol===symbol) : null;
-  const ohlcv   = ((data && data.ohlcv) || {})[symbol];
-  if (!symData || !ohlcv || !ohlcv.length) {
+  if (!symData) {
     document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No data for '+symbol+'.</div>';
     return;
   }
-  const regime  = strat.regime;
+  const requestedHash = location.hash;
+  document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading chart for '+symbol+'...</div>';
+
+  let ohlcv = null;
+  try {
+    ohlcv = await loadOhlcvForSymbol(symbol);
+  } catch (err) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading chart data: ' + err.message + '</div>';
+    return;
+  }
+  if (location.hash !== requestedHash) return;
+  if (!ohlcv || !ohlcv.length) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No data for '+symbol+'.</div>';
+    return;
+  }
+  const activeRegime = strat.regime;
   const trades  = symData.trades || [];
   const winRate = symData.trade_count > 0 ? (symData.win_count/symData.trade_count*100).toFixed(0)+'%' : '—';
   const showRsi = stratId === 'reversal';
@@ -842,8 +2890,8 @@ function renderSymbolChart(stratId, regime, symbol) {
   document.getElementById('page').innerHTML =
     '<div id="chart-page">' +
       '<div class="pg-hdr">' +
-        '<a class="back-btn" onclick="nav(\'strategy/'+stratId+'/'+regime+'\')">← '+sLabel(stratId)+'</a>' +
-        '<div class="pg-hdr-center"><span class="pg-title">'+symbol+'</span>' + pill(regime) + '</div>' +
+        '<a class="back-btn" onclick="nav(\'strategy/'+stratId+'/'+activeRegime+'\')">← '+sLabel(stratId)+'</a>' +
+        '<div class="pg-hdr-center"><span class="pg-title">'+symbol+'</span>' + pill(activeRegime) + '</div>' +
       '</div>' +
       '<div id="chart-stats">' +
         '<div class="cstat"><span class="cl">Trades</span>'+symData.trade_count+'</div>' +
@@ -864,6 +2912,13 @@ function renderSymbolChart(stratId, regime, symbol) {
       '</div>' +
     '</div>';
 
+  try {
+    await ensureChartLibrary();
+  } catch (err) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading chart library: ' + err.message + '</div>';
+    return;
+  }
+  if (location.hash !== requestedHash) return;
   requestAnimationFrame(() => buildChart(strat, symData, ohlcv, showRsi));
 }
 
@@ -897,12 +2952,21 @@ function buildChart(strat, symData, ohlcv, showRsi) {
   candle.setData(ohlcv);
 
   const legend = [];
+  addLine(chart, calcEMA(ohlcv,10), '#1a7f37', 1.6);
+  addLine(chart, calcSMA(ohlcv,50), '#cf222e', 1.6);
+  addLine(chart, calcSMA(ohlcv,200), '#111111', 1.6);
+  legend.push({c:'#1a7f37',l:'EMA10'}, {c:'#cf222e',l:'SMA50'}, {c:'#111111',l:'SMA200'});
 
   if (strat.id === 'ma_cross') {
     const f=ip.ma_fast||10, s=ip.ma_slow||20;
-    addLine(chart, calcEMA(ohlcv,f), '#d97706', 1.5);
-    addLine(chart, calcSMA(ohlcv,s), '#0969da', 1.5);
-    legend.push({c:'#d97706',l:'EMA'+f}, {c:'#0969da',l:'SMA'+s});
+    if (f !== 10) {
+      addLine(chart, calcEMA(ohlcv,f), '#d97706', 1.5);
+      legend.push({c:'#d97706',l:'EMA'+f});
+    }
+    if (s !== 50 && s !== 200) {
+      addLine(chart, calcSMA(ohlcv,s), '#0969da', 1.5);
+      legend.push({c:'#0969da',l:'SMA'+s});
+    }
   } else if (strat.id === 'bb_squeeze') {
     const bb=calcBB(ohlcv,ip.bb_period||20,ip.bb_mult||2.0);
     const kc=calcKC(ohlcv,ip.kc_mult||2.0);
@@ -913,12 +2977,10 @@ function buildChart(strat, symData, ohlcv, showRsi) {
     legend.push({c:'#7c3aed',l:'BB ±2σ'}, {c:'#c2410c',l:'KC ×'+(ip.kc_mult||2)});
   } else if (strat.id === 'trendline_breakout') {
     const ep=ip.ema_exit||10;
-    addLine(chart,calcEMA(ohlcv,ep),'#d97706',1.5);
-    addLine(chart,calcSMA(ohlcv,50),'#0969da',1.5);
-    legend.push({c:'#d97706',l:'EMA'+ep}, {c:'#0969da',l:'SMA50'});
-  } else if (strat.id === 'reversal') {
-    addLine(chart,calcSMA(ohlcv,50),'#0969da',1.5);
-    legend.push({c:'#0969da',l:'SMA50'});
+    if (ep !== 10) {
+      addLine(chart,calcEMA(ohlcv,ep),'#d97706',1.5);
+      legend.push({c:'#d97706',l:'EMA'+ep});
+    }
   }
 
   const chartTimes = ohlcv.map(b => b.time);
@@ -1106,6 +3168,543 @@ function calcVolumeSMA(bars, p=20) {
     for(let j=0;j<p;j++) sum += (bars[i-j].volume || 0);
     return {time:b.time, value:sum/p};
   });
+}
+
+// Final Learning overrides: anonymized real windows from exported data.
+function learningRealCandidates() {
+  return [
+    {id:'pivot_breakout', regimes:['uptrend','downtrend']},
+    {id:'pullback_buy', regimes:['uptrend','downtrend']},
+    {id:'ma_cross', regimes:['uptrend','downtrend']},
+    {id:'reversal', regimes:['choppy','downtrend']},
+    {id:'bb_squeeze', regimes:['choppy','uptrend','downtrend']},
+    {id:'trendline_breakout', regimes:['downtrend']},
+  ];
+}
+
+function learningRealMedian(values) {
+  const nums = (values || []).filter(v => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
+
+function learningRealRound(n) {
+  return n == null ? null : +n.toFixed(2);
+}
+
+function learningRealRepresentativeScore(position) {
+  const barsHeld = position.bars_held || 0;
+  const lastExit = (position.exits || [])[position.exits.length - 1] || {};
+  const finalReason = String(lastExit.exit_reason || '').toLowerCase();
+  const hasRunnerExit = (position.exits || []).some(exit => /ema|trail|tp2/.test(String(exit.exit_reason || '').toLowerCase()));
+  let score = 0;
+  score += position.pnl > 0 ? 100 : -40;
+  score += position.stop_price != null ? 10 : 0;
+  score += position.tp1_price != null ? 10 : 0;
+  score += hasRunnerExit ? 50 : 0;
+  score += /ema|trail/.test(finalReason) ? 70 : finalReason === 'tp2' ? 35 : finalReason === 'tp1' ? -30 : 0;
+  score -= Math.abs(barsHeld - 22) * 0.9;
+  score -= position.entry_price > 0 && position.entry_price < 0.1 ? 20 : 0;
+  score -= position.entry_price > 300 ? 10 : 0;
+  return score;
+}
+
+function learningRealChoosePosition(strat) {
+  const positions = extractLearningPositions(strat.symbols || []);
+  if (!positions.length) return null;
+  return [...positions].sort((a, b) => learningRealRepresentativeScore(b) - learningRealRepresentativeScore(a))[0] || null;
+}
+
+function learningRealBuildWindow(position, ohlcv) {
+  const entryIdxFull = findBarIndexByDate(ohlcv, position.entry_date);
+  const exitIdxFull = findBarIndexByDate(ohlcv, position.exit_date);
+  if (entryIdxFull < 0 || exitIdxFull < 0 || !position.entry_price) return null;
+
+  const viewStart = Math.max(0, entryIdxFull - 40);
+  const viewEnd = Math.min(ohlcv.length - 1, Math.max(exitIdxFull + 14, entryIdxFull + 18));
+  const historyStart = Math.max(0, viewStart - 220);
+  const rawBars = ohlcv.slice(historyStart, viewEnd + 1);
+  if (!rawBars.length) return null;
+
+  const scale = 100 / position.entry_price;
+  const volBase = learningRealMedian(rawBars.map(b => b.volume || 0)) || 1;
+  const anonDates = learningBusinessDates(rawBars.length, '2024-01-02');
+  const bars = rawBars.map((bar, idx) => ({
+    time: anonDates[idx],
+    open: learningRealRound(bar.open * scale),
+    high: learningRealRound(bar.high * scale),
+    low: learningRealRound(bar.low * scale),
+    close: learningRealRound(bar.close * scale),
+    volume: Math.max(0, Math.round(((bar.volume || 0) / volBase) * 100000)),
+  }));
+  const lastExit = (position.exits || [])[position.exits.length - 1] || {};
+  const exitEvents = (position.exits || []).map(exit => {
+    const idxFull = findBarIndexByDate(ohlcv, exit.exit_date);
+    if (idxFull < 0) return null;
+    return {
+      idx: idxFull - historyStart,
+      price: learningRealRound((exit.exit_price || position.entry_price) * scale),
+      reason: exit.exit_reason || 'exit',
+    };
+  }).filter(event => event && event.idx >= 0 && event.idx < bars.length);
+  return {
+    bars,
+    baseIdx: viewStart - historyStart,
+    entryIdx: entryIdxFull - historyStart,
+    exitIdx: exitIdxFull - historyStart,
+    position: {
+      entry_price: learningRealRound(position.entry_price * scale),
+      stop_price: learningRealRound(position.stop_price * scale),
+      tp1_price: learningRealRound(position.tp1_price * scale),
+      tp2_price: learningRealRound(position.tp2_price * scale),
+      exit_reason: lastExit.exit_reason || 'exit',
+      exit_events: exitEvents,
+    },
+  };
+}
+
+function collectLearningLessons() {
+  const data = currentData();
+  const strats = ((data && data.strategies) || []).filter(isVisibleStrategy);
+  return learningRealCandidates().map(spec => {
+    const ranked = spec.regimes
+      .map(reg => strats.find(s => s.id === spec.id && s.regime === reg))
+      .filter(Boolean)
+      .map(strat => ({strat, position: learningRealChoosePosition(strat)}))
+      .filter(item => item.position)
+      .sort((a, b) => learningRealRepresentativeScore(b.position) - learningRealRepresentativeScore(a.position));
+    if (!ranked.length) return null;
+    const strat = ranked[0].strat;
+    return {
+      id: strat.id,
+      regime: strat.regime,
+      strategy: strat,
+      copy: learningCopyForStrategy(strat.id),
+      indicators: learningIndicatorSpecs(strat.id, {indicator_params: strat.indicator_params || {}}),
+      showVolumePanel: learningPanelsForStrategy(strat.id).showVolume,
+      showRsiPanel: learningPanelsForStrategy(strat.id).showRsi,
+    };
+  }).filter(Boolean);
+}
+
+function renderLearningHome() {
+  const lessons = collectLearningLessons();
+  if (!lessons.length) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No learning lessons available for the active export. Run chart-export first.</div>';
+    return;
+  }
+
+  const cards = lessons.map(lesson =>
+    '<div class="learn-card">' +
+      '<div class="learn-card-top">' +
+        '<h3>' + lesson.copy.title + '</h3>' +
+      '</div>' +
+      '<div class="learn-copy">' + lesson.copy.summary + '</div>' +
+      '<div class="learn-meta">' +
+        '<span><strong>Source</strong> Anonymized real window</span>' +
+        '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span>' +
+      '</div>' +
+      '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
+    '</div>'
+  ).join('');
+
+  document.getElementById('page').innerHTML =
+    '<div class="learn-home">' +
+      '<div class="learn-intro">' +
+        '<div><h2>Learning</h2><p>Each lesson uses an anonymized real market window from the active export. The symbol and raw price scale are hidden, but the candle structure, noise, and volume behaviour stay real.</p></div>' +
+      '</div>' +
+      '<div class="learn-grid">' + cards + '</div>' +
+    '</div>';
+}
+
+function learningStepMeta(state) {
+  const copy = state.lesson.copy;
+  const triggerIdx = state.entryIdx;
+  const setupEnd = Math.max(state.baseIdx + 8, triggerIdx - 3);
+  return [
+    { title: '1. Setup', text: copy.setup, focusEnd: setupEnd, showTrigger: false, showLevels: false, showOutcome: false },
+    { title: '2. Trigger', text: copy.trigger, focusEnd: triggerIdx, showTrigger: true, showLevels: false, showOutcome: false },
+    { title: '3. Replay', text: copy.management, focusEnd: state.exitIdx, showTrigger: true, showLevels: true, showOutcome: false },
+    { title: '4. Outcome', text: 'This lesson uses a real trade window with prices and volumes rescaled, so the chart keeps real market behaviour while the instrument stays anonymous.', focusEnd: Math.min(state.bars.length - 1, Math.max(state.exitIdx + 4, triggerIdx + 8)), showTrigger: true, showLevels: true, showOutcome: true },
+  ];
+}
+
+async function renderLearningLesson(stratId, regime) {
+  const lesson = collectLearningLessons().find(x => x.id === stratId && x.regime === regime);
+  if (!lesson) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Lesson not found.</div>';
+    return;
+  }
+  document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading lesson...</div>';
+
+  let ohlcvMap;
+  try {
+    ohlcvMap = await loadOhlcvForActiveMarket();
+    await ensureChartLibrary();
+  } catch (err) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
+    return;
+  }
+
+  const position = learningRealChoosePosition(lesson.strategy);
+  if (!position) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No representative trade found for this lesson.</div>';
+    return;
+  }
+  const ohlcv = ohlcvMap[position.symbol];
+  if (!ohlcv || !ohlcv.length) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for the lesson source symbol.</div>';
+    return;
+  }
+
+  const windowData = learningRealBuildWindow(position, ohlcv);
+  if (!windowData) {
+    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Could not build a lesson window from the exported trade history.</div>';
+    return;
+  }
+
+  _learningState = {
+    lesson,
+    bars: windowData.bars,
+    baseIdx: windowData.baseIdx,
+    entryIdx: windowData.entryIdx,
+    exitIdx: windowData.exitIdx,
+    position: windowData.position,
+    step: 0,
+    revealIdx: null,
+    autoPlaying: false,
+  };
+
+  document.getElementById('page').innerHTML =
+    '<div class="learn-player">' +
+      '<div class="pg-hdr">' +
+        '<div class="pg-hdr-inner">' +
+          '<a class="back-btn" onclick="nav(\'learning\')">← Learning</a>' +
+          '<div class="pg-hdr-center"><span class="pg-title">' + lesson.copy.title + '</span>' + pill(lesson.regime) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="learn-layout">' +
+        '<div class="learn-chart-shell">' +
+          '<div class="learn-chart-head">' +
+            '<div class="learn-meta"><span><strong>Source</strong> Anonymized real window</span><span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span></div>' +
+          '</div>' +
+          '<div class="learn-step-copy" id="learn-step-copy"></div>' +
+          '<div class="learn-chart-stage"><div id="learn-chart"></div><div id="learn-chart-volume"></div><div id="learn-chart-rsi"></div></div>' +
+          '<div id="learn-chart-legend"></div>' +
+          '<div class="learn-playbar">' +
+            '<div class="learn-playbar-inner">' +
+              '<div class="learn-play-controls">' +
+                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) - 1, {animate:false})">Prev</button>' +
+                '<button class="learn-btn" id="learn-play-btn" onclick="toggleLearningAutoplay()">Play</button>' +
+                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) + 1, {animate:true})">Next</button>' +
+                '<button class="learn-btn alt" onclick="replayLearningSequence()">Replay</button>' +
+              '</div>' +
+              '<div class="learn-play-steps"><div class="learn-step-pills" id="learn-step-pills"></div></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  setLearningStep(0, {animate:false});
+}
+
+function renderLearningChrome() {
+  const state = _learningState;
+  if (!state) return;
+  const steps = learningStepMeta(state);
+  const step = steps[state.step] || steps[0];
+  const playBtn = document.getElementById('learn-play-btn');
+  if (playBtn) playBtn.textContent = state.autoPlaying ? 'Pause' : 'Play';
+  const pills = document.getElementById('learn-step-pills');
+  if (pills) {
+    pills.innerHTML = steps.map((s, idx) =>
+      '<button class="learn-step-pill ' + (idx === state.step ? 'active' : '') + '" onclick="setLearningStep(' + idx + ', {animate:' + ((idx === 1 || idx === 2) ? 'true' : 'false') + '})">' + s.title + '</button>'
+    ).join('');
+  }
+  const copyEl = document.getElementById('learn-step-copy');
+  if (!copyEl) return;
+  copyEl.innerHTML =
+    '<div class="kicker">' + learningRegimeMeta(state.lesson.regime).title + ' lesson</div>' +
+    '<div class="title">' + step.title + '</div>' +
+    '<div class="text">' + step.text + '</div>';
+}
+
+function setLearningStep(nextStep, opts={}) {
+  const state = _learningState;
+  if (!state) return;
+  const steps = learningStepMeta(state);
+  const maxStep = steps.length - 1;
+  state.step = Math.max(0, Math.min(maxStep, nextStep));
+  state.revealIdx = null;
+  renderLearningChrome();
+  if (state.step === 1 && opts.animate !== false) animateLearningTrigger();
+  else if (state.step === 2 && opts.animate !== false) animateLearningTrade();
+  else renderLearningChart();
+}
+
+function animateLearningTrigger() {
+  const state = _learningState;
+  if (!state) return;
+  clearLearningTimers();
+  const startIdx = Math.max(state.baseIdx, state.entryIdx - 4);
+  const finalIdx = state.entryIdx;
+  const tick = idx => {
+    if (!_learningState || _learningState !== state) return;
+    state.revealIdx = idx;
+    renderLearningChart();
+    if (idx < finalIdx) _learningTimer = setTimeout(() => tick(idx + 1), 320);
+  };
+  tick(startIdx);
+}
+
+function animateLearningTrade() {
+  const state = _learningState;
+  if (!state) return;
+  clearLearningTimers();
+  const startIdx = state.entryIdx;
+  const finalIdx = state.exitIdx;
+  const tick = idx => {
+    if (!_learningState || _learningState !== state) return;
+    state.revealIdx = idx;
+    renderLearningChart();
+    if (idx < finalIdx) _learningTimer = setTimeout(() => tick(idx + 1), 240);
+  };
+  tick(startIdx);
+}
+
+function replayLearningSequence() {
+  if (!_learningState) return;
+  if (_learningState.step >= 2) setLearningStep(2, {animate:true});
+  else setLearningStep(1, {animate:true});
+}
+
+function toggleLearningAutoplay() {
+  const state = _learningState;
+  if (!state) return;
+  state.autoPlaying = !state.autoPlaying;
+  renderLearningChrome();
+  clearLearningTimers();
+  if (!state.autoPlaying) return;
+  const advance = () => {
+    if (!_learningState || !_learningState.autoPlaying) return;
+    if (_learningState.step >= learningStepMeta(_learningState).length - 1) {
+      _learningState.autoPlaying = false;
+      renderLearningChrome();
+      return;
+    }
+    const next = _learningState.step + 1;
+    setLearningStep(next, {animate: next === 1 || next === 2});
+    const triggerBars = 5;
+    const tradeBars = Math.max(1, (_learningState.exitIdx - _learningState.entryIdx) + 1);
+    const delay = next === 1 ? (triggerBars * 320 + 500) : next === 2 ? (tradeBars * 240 + 700) : 2200;
+    _learningAutoTimer = setTimeout(advance, delay);
+  };
+  advance();
+}
+
+function renderLearningChart() {
+  const state = _learningState;
+  if (!state) return;
+  _charts.forEach(c => { try { c.remove(); } catch(_) {} });
+  _charts = [];
+
+  const chartEl = document.getElementById('learn-chart');
+  const volEl = document.getElementById('learn-chart-volume');
+  const rsiEl = document.getElementById('learn-chart-rsi');
+  if (!chartEl) return;
+
+  const steps = learningStepMeta(state);
+  const step = steps[state.step] || steps[0];
+  const endIdx = (state.step === 1 || state.step === 2) && state.revealIdx != null ? state.revealIdx : step.focusEnd;
+  const startIdx = state.baseIdx || 0;
+  const isAnimatedReplay = state.step === 1 || state.step === 2;
+  const windowBars = step.showOutcome ? 64 : 52;
+  const rightPad = isAnimatedReplay ? 0 : (step.showOutcome ? 10 : 8);
+  const minStartIdx = isAnimatedReplay ? 0 : startIdx;
+  let visibleStartIdx = Math.max(minStartIdx, endIdx - (windowBars - rightPad - 1));
+  if (!isAnimatedReplay && (step.showLevels || step.showOutcome) && state.entryIdx < visibleStartIdx) {
+    const candidateStart = Math.max(startIdx, state.entryIdx - 14);
+    if ((endIdx + rightPad - candidateStart + 1) <= windowBars) {
+      visibleStartIdx = candidateStart;
+    }
+  }
+  const visibleEndIdx = isAnimatedReplay
+    ? endIdx
+    : Math.min(state.bars.length - 1, Math.max(endIdx + rightPad, visibleStartIdx + windowBars - 1));
+  const visibleBars = state.bars.slice(visibleStartIdx, visibleEndIdx + 1);
+  const legend = [];
+  const showVolume = state.lesson.showVolumePanel;
+  const showRsi = state.lesson.showRsiPanel;
+  if (volEl) volEl.style.display = showVolume ? 'block' : 'none';
+  if (rsiEl) rsiEl.style.display = showRsi ? 'block' : 'none';
+
+  const base = {
+    layout:   { background:{type:'Solid',color:'#ffffff'}, textColor:'#656d76' },
+    grid:     { vertLines:{color:'#eaeef2'}, horzLines:{color:'#eaeef2'} },
+    crosshair:{ mode: 1 },
+    rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.08, bottom:0.15} },
+    timeScale: { borderColor:'#d0d7de', timeVisible:true },
+    autoSize: true,
+  };
+  const chart = LightweightCharts.createChart(chartEl, base);
+  _charts.push(chart);
+  const candle = chart.addCandlestickSeries({
+    upColor:'#1a7f37', downColor:'#cf222e',
+    borderUpColor:'#1a7f37', borderDownColor:'#cf222e',
+    wickUpColor:'#1a7f37', wickDownColor:'#cf222e',
+  });
+  candle.setData(visibleBars);
+
+  const sliceSeries = series => series.slice(visibleStartIdx, visibleEndIdx + 1);
+  const addGuideLine = (price, color, title) => {
+    if (price == null) return;
+    candle.createPriceLine({
+      price,
+      color,
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title,
+    });
+  };
+  addLine(chart, sliceSeries(calcEMA(state.bars, 10)), '#1a7f37', 1.6);
+  addLine(chart, sliceSeries(calcSMA(state.bars, 50)), '#cf222e', 1.6);
+  addLine(chart, sliceSeries(calcSMA(state.bars, 200)), '#111111', 1.6);
+  legend.push({c:'#1a7f37',l:'EMA10'}, {c:'#cf222e',l:'SMA50'}, {c:'#111111',l:'SMA200'});
+
+  const ip = state.lesson.strategy.indicator_params || {};
+  if (state.lesson.id === 'ma_cross') {
+    const f = ip.ma_fast || 10, s = ip.ma_slow || 20;
+    if (f !== 10) { addLine(chart, sliceSeries(calcEMA(state.bars, f)), '#d97706', 1.4); legend.push({c:'#d97706',l:'EMA'+f}); }
+    if (s !== 50 && s !== 200) { addLine(chart, sliceSeries(calcSMA(state.bars, s)), '#0969da', 1.4); legend.push({c:'#0969da',l:'SMA'+s}); }
+  } else if (state.lesson.id === 'bb_squeeze') {
+    const bb = calcBB(state.bars, ip.bb_period || 20, ip.bb_mult || 2.0);
+    const kc = calcKC(state.bars, ip.kc_mult || 2.0);
+    addLine(chart, sliceSeries(bb.upper), '#7c3aed', 1.1, true);
+    addLine(chart, sliceSeries(bb.lower), '#7c3aed', 1.1, true);
+    addLine(chart, sliceSeries(kc.upper), '#c2410c', 1.1, true);
+    addLine(chart, sliceSeries(kc.lower), '#c2410c', 1.1, true);
+    legend.push({c:'#7c3aed',l:'BB'}, {c:'#c2410c',l:'KC'});
+  }
+
+  const structureMarkers = [];
+  if (state.lesson.id === 'pivot_breakout') {
+    const pivotGuide = learningPivotBreakoutGuide(state, visibleStartIdx, visibleEndIdx);
+    if (pivotGuide) {
+      addLine(chart, pivotGuide, '#d97706', 3, true);
+      legend.push({c:'#d97706',l:'Breakout level'});
+    }
+  } else if (state.lesson.id === 'pullback_buy') {
+    const pullbackGuide = learningPullbackBuyGuide(state, visibleStartIdx, visibleEndIdx);
+    if (pullbackGuide) {
+      addLine(chart, pullbackGuide.line, '#d97706', 3, true);
+      addLine(chart, pullbackGuide.upper, '#f59e0b', 1.5, true);
+      addLine(chart, pullbackGuide.lower, '#f59e0b', 1.5, true);
+      legend.push({c:'#d97706',l:'Breakpoint'}, {c:'#f59e0b',l:'Pullback band'});
+      if (pullbackGuide.pivot.idx >= visibleStartIdx && pullbackGuide.pivot.idx <= visibleEndIdx) {
+        structureMarkers.push({time:state.bars[pullbackGuide.pivot.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Pivot'});
+      }
+    }
+  } else if (state.lesson.id === 'trendline_breakout') {
+    const trendlineGuide = learningTrendlineBreakoutGuide(state, visibleStartIdx, visibleEndIdx);
+    if (trendlineGuide && trendlineGuide.points.length) {
+      addLine(chart, trendlineGuide.points, '#d97706', 3, false);
+      legend.push({c:'#d97706',l:'Breakout trendline'});
+      if (trendlineGuide.anchor.idx >= visibleStartIdx && trendlineGuide.anchor.idx <= visibleEndIdx) {
+        structureMarkers.push({time:state.bars[trendlineGuide.anchor.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Anchor'});
+      }
+      if (trendlineGuide.pivot.idx >= visibleStartIdx && trendlineGuide.pivot.idx <= visibleEndIdx) {
+        structureMarkers.push({time:state.bars[trendlineGuide.pivot.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Pivot'});
+      }
+    }
+  }
+
+  if (showVolume && volEl) {
+    const volChart = LightweightCharts.createChart(volEl, {
+      ...base,
+      rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.12, bottom:0.05}, visible:true },
+      timeScale: {...base.timeScale, visible:false},
+      autoSize: true,
+    });
+    _charts.push(volChart);
+    const volSeries = volChart.addHistogramSeries({
+      color:'#d0d7de', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
+    });
+    volSeries.setData(visibleBars.map(b => ({
+      time: b.time,
+      value: b.volume || 0,
+      color: b.close >= b.open ? '#b7e5c6' : '#ffc1bd',
+    })));
+    const volMa = volChart.addLineSeries({
+      color:'#9a6700', lineWidth:1.5, priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
+    });
+    volMa.setData(sliceSeries(calcVolumeSMA(state.bars, 20)));
+    legend.push({c:'#9a6700',l:'Vol MA20'});
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) volChart.timeScale().setVisibleRange(r); });
+  }
+
+  if (showRsi && rsiEl) {
+    const rsiChart = LightweightCharts.createChart(rsiEl, {
+      ...base,
+      height: 80,
+      timeScale: {...base.timeScale, visible:false},
+    });
+    _charts.push(rsiChart);
+    const period = ip.rsi_period || 14;
+    const threshold = ip.rsi_threshold || 40;
+    const rsiSeries = rsiChart.addLineSeries({color:'#7c3aed', lineWidth:1, priceLineVisible:false, lastValueVisible:false});
+    rsiSeries.setData(sliceSeries(calcRSI(state.bars, period)));
+    rsiSeries.createPriceLine({price:threshold, color:'#8c959f', lineWidth:1, lineStyle:2});
+    legend.push({c:'#7c3aed', l:'RSI(' + period + ')'});
+    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) rsiChart.timeScale().setVisibleRange(r); });
+  }
+
+  const markers = [...structureMarkers];
+  const entryBar = state.bars[state.entryIdx];
+  const exitBar = state.bars[Math.min(state.exitIdx, state.bars.length - 1)];
+  const exitEvents = state.position.exit_events || [];
+  if (step.showTrigger && entryBar && state.entryIdx <= endIdx) {
+    addGuideLine(state.position.entry_price, '#0969da', 'Trigger');
+    legend.push({c:'#0969da',l:'Trigger'});
+    markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'circle', text:'Trigger'});
+  }
+  if (step.showLevels) {
+    addGuideLine(state.position.stop_price, '#cf222e', 'Stop');
+    addGuideLine(state.position.tp1_price, '#9a6700', 'TP1');
+    legend.push({c:'#cf222e',l:'Stop'}, {c:'#9a6700',l:'TP1'});
+    if (state.position.tp2_price != null) {
+      addGuideLine(state.position.tp2_price, '#7c3aed', 'TP2');
+      legend.push({c:'#7c3aed',l:'TP2'});
+    }
+    if (entryBar && state.entryIdx <= endIdx) {
+      markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'arrowUp', text:'Entry'});
+    }
+  }
+  if (step.showLevels) {
+    exitEvents.forEach((event, idx) => {
+      const bar = state.bars[event.idx];
+      if (!bar || event.idx > endIdx) return;
+      const isFinal = idx === exitEvents.length - 1;
+      markers.push({
+        time: bar.time,
+        position: 'aboveBar',
+        color: isFinal ? '#111111' : '#9a6700',
+        shape: 'arrowDown',
+        text: exitLbl(event.reason),
+      });
+    });
+  }
+  if (step.showOutcome && exitBar && state.exitIdx <= endIdx && !exitEvents.length) {
+    markers.push({time:exitBar.time, position:'aboveBar', color:'#111111', shape:'arrowDown', text:exitLbl(state.position.exit_reason || 'exit')});
+  }
+
+  candle.setMarkers(markers.sort((a,b) => a.time < b.time ? -1 : 1));
+  chart.timeScale().fitContent();
+
+  const legEl = document.getElementById('learn-chart-legend');
+  if (legEl) legEl.innerHTML = legend.map(i => '<div class="leg"><div class="leg-line" style="background:' + i.c + '"></div>' + i.l + '</div>').join('');
 }
 </script>
 </body>

@@ -50,12 +50,17 @@ coverage.xml
 *.log
 logs/
 
+# Runtime caches
+.cache/
+.lean-ctx/
+
 # Charts / output artefacts
 *.png
 *.jpg
 *.csv
 charts/
 output/
+docs/ohlcv_*.json
 
 # Claude Code memory (local only)
 .claude/
