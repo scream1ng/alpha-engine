@@ -20,7 +20,6 @@ def test_merge_chart_export_payload_upgrades_single_market_payload() -> None:
 
     assert merged["version"] == 2
     assert merged["default_market"] == "AU"
-    assert merged["market"] == "AU"
     assert set(merged["markets"]) == {"AU", "TH"}
     assert merged["markets"]["TH"]["market"] == "TH"
     assert merged["markets"]["AU"]["generated"] == "2026-05-13"

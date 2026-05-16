@@ -26,7 +26,7 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         timezone="Asia/Bangkok",
         enabled_strategies=[
             "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
-            "bb_squeeze", "ma_cross", "narrow_range",
+            "bb_squeeze", "ma_cross",
         ],
     ),
     "us": MarketConfig(
@@ -41,7 +41,7 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         timezone="America/New_York",
         enabled_strategies=[
             "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
-            "bb_squeeze", "ma_cross", "narrow_range",
+            "bb_squeeze", "ma_cross",
         ],
     ),
     "au": MarketConfig(
@@ -56,7 +56,7 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         timezone="Australia/Sydney",
         enabled_strategies=[
             "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
-            "bb_squeeze", "ma_cross", "narrow_range",
+            "bb_squeeze", "ma_cross",
         ],
     ),
     "crypto": MarketConfig(
@@ -71,7 +71,7 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         timezone="UTC",
         enabled_strategies=[
             "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
-            "bb_squeeze", "ma_cross", "narrow_range",
+            "bb_squeeze", "ma_cross",
         ],
     ),
     "commodity": MarketConfig(
@@ -86,7 +86,7 @@ MARKET_CONFIGS: dict[str, MarketConfig] = {
         timezone="America/New_York",
         enabled_strategies=[
             "pivot_breakout", "trendline_breakout", "pullback_buy", "reversal",
-            "bb_squeeze", "ma_cross", "narrow_range",
+            "bb_squeeze", "ma_cross",
         ],
     ),
 }

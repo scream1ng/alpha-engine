@@ -61,9 +61,13 @@ logs/
 charts/
 output/
 docs/ohlcv_*.json
+!docs/ohlcv_learn.json
 
 # Claude Code memory (local only)
 .claude/
+
+# lean-ctx runtime files (tool-specific, local only)
+LEAN-CTX.md
 
 # OS
 desktop.ini

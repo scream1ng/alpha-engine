@@ -47,7 +47,7 @@ Use it to understand current best params, what has been tested, and what directi
 run-all  ≡  regime  →  optimise  →  stability  →  report  →  chart-export
 ```
 
-1. **`regime`** — 5yr backtest of all 7 strategies across 3 regimes (uptrend/choppy/downtrend). Writes `reports/th_regime_latest.md` and saves regime labels to `regime_labels` DB table.
+1. **`regime`** — 5yr backtest of all 6 active strategies across 3 regimes (uptrend/choppy/downtrend). Writes `reports/th_regime_latest.md` and saves regime labels to `regime_labels` DB table.
 2. **`optimise`** — tests strategy-specific signal-param grids on PASS pairs (calmar ≥ 0.3). Only saves to DB if best calmar ≥ 0.5 (unified gate). Writes `reports/th_optimise_latest.md`. Appends entry to `reports/run_log.md`.
 3. **`stability`** — splits benchmark history into separate contiguous regime episodes, scores baseline and optimised pairs by episode consistency, and writes `reports/th_stability_latest.md`.
 4. **`report`** — builds `reports/th_report_latest.md`, the executive summary of current approved, watchlist, and rejected pairs.
@@ -87,7 +87,7 @@ Pages:
 
 `Strategy` ABC in `strategies/base.py`: `id`, `default_params`, `scan(df, params) → list[Signal]`. Registered via `@StrategyRegistry.register` decorator. Auto-loaded by `strategies/__init__.py` on import.
 
-7 strategies: `pivot_breakout`, `trendline_breakout`, `pullback_buy`, `reversal`, `bb_squeeze`, `ma_cross`, `narrow_range`.
+6 active strategies: `pivot_breakout`, `trendline_breakout`, `pullback_buy`, `reversal`, `bb_squeeze`, `ma_cross`.
 
 Strategy `default_params` define per-strategy rvol/SL/TP/trail defaults. These get **overridden** by pipeline param dicts — so check the active param dict, not just default_params, when debugging unexpected results.
 

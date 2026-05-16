@@ -24,6 +24,9 @@ class HardExitPolicy(ExitPolicy):
         hard_stop_mode = str(params.get("hard_stop_mode", getattr(sig, "hard_stop_mode", "both")) or "both").lower()
         use_trail = hard_stop_mode in ("both", "trail")
         use_ema = hard_stop_mode in ("both", "ema10")
+        tp2_mult = float(getattr(sig, "tp2_atr_mult", 0.0) or 0.0)
+        tp2_pct = float(getattr(sig, "tp2_partial_pct", 1.0) or 0.0)
+        tp2_enabled = tp2_mult < 900 and tp2_pct > 0
 
         if sig.direction == "long":
             # 1. Hard SL
@@ -31,11 +34,10 @@ class HardExitPolicy(ExitPolicy):
                 return ExitSignal(reason="sl", price=position.sl_current)
 
             # 2. TP2 partial or full exit
-            if not position.tp2_hit and high >= sig.tp2:
+            if tp2_enabled and not position.tp2_hit and high >= sig.tp2:
                 position.tp2_hit = True
-                pct = getattr(sig, "tp2_partial_pct", 1.0)
-                partial = pct < 1.0
-                return ExitSignal(reason="tp2", price=sig.tp2, partial=partial, partial_pct=pct)
+                partial = tp2_pct < 1.0
+                return ExitSignal(reason="tp2", price=sig.tp2, partial=partial, partial_pct=tp2_pct)
 
             # 3. TP1 partial exit, move SL to entry
             if not position.tp1_hit and high >= sig.tp1:
@@ -76,11 +78,10 @@ class HardExitPolicy(ExitPolicy):
         else:  # short
             if high >= position.sl_current:
                 return ExitSignal(reason="sl", price=position.sl_current)
-            if not position.tp2_hit and low <= sig.tp2:
+            if tp2_enabled and not position.tp2_hit and low <= sig.tp2:
                 position.tp2_hit = True
-                pct = getattr(sig, "tp2_partial_pct", 1.0)
-                partial = pct < 1.0
-                return ExitSignal(reason="tp2", price=sig.tp2, partial=partial, partial_pct=pct)
+                partial = tp2_pct < 1.0
+                return ExitSignal(reason="tp2", price=sig.tp2, partial=partial, partial_pct=tp2_pct)
             if not position.tp1_hit and low <= sig.tp1:
                 position.tp1_hit = True
                 position.sl_current = sig.entry

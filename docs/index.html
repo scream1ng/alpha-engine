@@ -164,6 +164,10 @@ tr:hover td{background:var(--bg2)}
 .perf-table .mono{font-family:monospace;font-weight:600}
 .perf-table .yr-cell{font-family:monospace;font-weight:600;text-align:right}
 .perf-table .yr-cell.pos{color:var(--green)}.perf-table .yr-cell.neg{color:var(--red)}.perf-table .yr-cell.neu{color:var(--text3)}
+.perf-table .live-row td{background:rgba(26,127,55,.06)}
+.perf-table .live-row:hover td{background:rgba(26,127,55,.12) !important}
+.perf-table .live-row .pt-name::after{content:'LIVE';font-size:9px;font-weight:700;letter-spacing:.5px;color:var(--green);border:1px solid var(--green);border-radius:3px;padding:1px 5px;margin-left:7px;vertical-align:middle}
+.perf-table .dim-row td{opacity:.4}
 
 /* ── CHART PAGE ───────────────────────────────────── */
 #chart-page{display:flex;flex-direction:column;height:calc(100dvh - 48px);overflow:hidden}
@@ -513,7 +517,6 @@ function renderOverview() {
     let cards = '';
     entries.forEach(({id, base, opt, pass}) => {
       const calmar  = opt ? opt.calmar  : base.calmar;
-      const retPct  = opt ? opt.ret_pct : avgRetFromYearly(base.yearly);
       const wr      = opt ? opt.win_rate : base.wr;
       const ntrades = opt ? opt.symbols.reduce((a,s) => a + s.trade_count, 0) : base.trade_count;
       const click   = pass && opt ? 'onclick="nav(\'strategy/' + id + '/' + key + '\')"' : '';
@@ -523,7 +526,6 @@ function renderOverview() {
           '<div class="sc-metrics">' +
             '<div class="sc-m"><div class="sc-ml">Calmar</div><div class="sc-mv neu">' + fmt(calmar, 2) + '</div></div>' +
             '<div class="sc-m"><div class="sc-ml">Win Rate</div><div class="sc-mv neu">' + fmt(wr, 1) + '%</div></div>' +
-            (retPct != null ? '<div class="sc-m"><div class="sc-ml">Ret/yr</div><div class="sc-mv ' + clr(retPct) + '">' + pct(retPct) + '</div></div>' : '') +
             '<div class="sc-m"><div class="sc-ml">Trades</div><div class="sc-mv neu">' + ntrades + '</div></div>' +
           '</div>' +
         '</div>';
@@ -541,10 +543,10 @@ function renderOverview() {
       '</div>';
   });
 
-  const tableSection = buildPerfTable(rm, optLookup, allIds);
+  const tableSection = buildPerfTable(rm, optLookup, allIds, cur);
 
   document.getElementById('page').innerHTML =
-    '<div class="ov-bar"><div class="ov-inner"><h2>Regime Overview</h2></div></div>' +
+    '<div class="ov-bar"><div class="ov-inner"><h2>Regime Overview</h2>' + (cur ? '<span class="sub">Current regime: <strong>' + cur + '</strong></span>' : '') + '</div></div>' +
     '<div style="padding-top:20px">' + tableSection + '</div>' +
     '<div class="ov-grid">' + cols + '</div>';
 }
@@ -623,7 +625,7 @@ function optYearlyStats(opt) {
   return yearly;
 }
 
-function buildPerfTable(rm, optLookup, allIds) {
+function buildPerfTable(rm, optLookup, allIds, cur) {
   const REGIMES = ['uptrend','choppy','downtrend'];
   const passEntries = [];
   allIds.forEach(id => {
@@ -652,7 +654,12 @@ function buildPerfTable(rm, optLookup, allIds) {
 
   let tCal=0, tDd=0, tWr=0, n=0;
   const tYr = {};
-  years.forEach(y => tYr[y] = 0);
+  const regYrSum = {uptrend:{}, choppy:{}, downtrend:{}};
+  const regYrCnt = {uptrend:{}, choppy:{}, downtrend:{}};
+  years.forEach(y => {
+    tYr[y] = 0;
+    ['uptrend','choppy','downtrend'].forEach(r => { regYrSum[r][y] = 0; regYrCnt[r][y] = 0; });
+  });
 
   let rows = '';
   passEntries.forEach(({id, reg, base, opt}) => {
@@ -660,18 +667,23 @@ function buildPerfTable(rm, optLookup, allIds) {
     const dd      = opt ? opt.max_dd   : base.max_dd;
     const wr      = opt ? opt.win_rate : base.wr;
     const yearly  = (opt ? optYearly(opt, years) : null) || base.yearly || {};
+    const isLive  = cur && reg === cur;
     tCal += calmar||0; tDd += dd||0; tWr += wr||0; n++;
 
     let yrCells = '';
     years.forEach(y => {
       const rp = (yearly[y] || {}).ret_pct;
-      if (rp != null) tYr[y] += rp;
+      if (rp != null) {
+        tYr[y] += rp;
+        if (regYrSum[reg]) { regYrSum[reg][y] = (regYrSum[reg][y]||0) + rp; regYrCnt[reg][y] = (regYrCnt[reg][y]||0) + 1; }
+      }
       const cls = rp == null ? '' : rp >= 0 ? 'pos' : 'neg';
       yrCells += '<td class="yr-cell ' + cls + '">' + (rp != null ? pct(rp) : '—') + '</td>';
     });
 
+    const rowCls = cur ? (isLive ? 'live-row' : 'dim-row') : '';
     rows +=
-      '<tr onclick="nav(\'strategy/' + id + '/' + reg + '\')">' +
+      '<tr class="' + rowCls + '" onclick="nav(\'strategy/' + id + '/' + reg + '\')">' +
         '<td class="pt-name">' + sLabel(id) + '</td>' +
         '<td>' + pill(reg) + '</td>' +
         '<td class="mono">' + fmt(calmar,2) + '</td>' +
@@ -681,15 +693,25 @@ function buildPerfTable(rm, optLookup, allIds) {
       '</tr>';
   });
 
+  const ryw = (currentData() || {}).regime_year_weights || null;
   let tallyYr = '';
   years.forEach(y => {
-    const v = tYr[y];
+    let v;
+    if (ryw && ryw[y]) {
+      v = ['uptrend','choppy','downtrend'].reduce((acc, r) => {
+        const w = ryw[y][r] || 0;
+        const avg = regYrCnt[r][y] ? regYrSum[r][y] / regYrCnt[r][y] : 0;
+        return acc + w * avg;
+      }, 0);
+    } else {
+      v = n ? tYr[y] / n : 0;
+    }
     const cls = v >= 0 ? 'pos' : 'neg';
     tallyYr += '<td class="yr-cell ' + cls + '" style="font-weight:700">' + pct(v) + '</td>';
   });
   const tallyRow =
     '<tr class="tally-row">' +
-      '<td colspan="2" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2)">Tally &nbsp;·&nbsp; ' + n + ' passing strategies</td>' +
+      '<td colspan="2" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2)">' + (ryw ? 'Regime-weighted return &nbsp;·&nbsp; ' + n + ' strategies' : 'Avg &nbsp;·&nbsp; ' + n + ' strategies &nbsp;·&nbsp; equal-weight') + '</td>' +
       '<td class="mono">' + fmt(tCal/n,2) + ' avg</td>' +
       '<td class="mono neg">' + fmt(tDd/n,1) + '% avg</td>' +
       '<td class="mono">' + fmt(tWr/n,1) + '% avg</td>' +
@@ -701,7 +723,7 @@ function buildPerfTable(rm, optLookup, allIds) {
   return (
     '<div style="padding:0 20px 24px;max-width:1200px;margin:0 auto;width:100%">' +
       '<div class="card">' +
-        '<div class="card-hdr">5-Year Performance — All Passing Strategies (Optimised)</div>' +
+        '<div class="card-hdr">5-Year Performance — All Passing Strategies (Optimised)' + (cur ? '<span style="float:right;font-weight:400;font-size:11px;color:var(--text2)">Current regime: <strong style="color:var(--green)">' + cur + '</strong> &nbsp;·&nbsp; ' + passEntries.filter(e => e.reg === cur).length + ' active now</span>' : '') + '</div>' +
         '<div style="overflow-x:auto">' +
           '<table class="perf-table">' +
             '<thead><tr>' +

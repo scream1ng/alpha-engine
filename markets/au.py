@@ -29,6 +29,33 @@ class AUAdapter(MarketAdapter):
         df.index = pd.to_datetime(df.index).tz_localize(None)
         return df[["open", "high", "low", "close", "volume"]].dropna()
 
+    def ohlcv_bulk(self, symbols: list[str], start: date, end: date) -> dict[str, pd.DataFrame]:
+        result: dict[str, pd.DataFrame] = {}
+        chunk_size = 200
+        for i in range(0, len(symbols), chunk_size):
+            chunk = symbols[i : i + chunk_size]
+            try:
+                raw = yf.download(
+                    chunk, start=str(start), end=str(end),
+                    auto_adjust=True, group_by="ticker", progress=False,
+                )
+                for sym in chunk:
+                    try:
+                        df = raw[sym]
+                        df = df.rename(columns={
+                            "Open": "open", "High": "high", "Low": "low",
+                            "Close": "close", "Volume": "volume",
+                        })
+                        idx = pd.to_datetime(df.index)
+                        df.index = idx.tz_localize(None) if idx.tz is not None else idx
+                        result[sym] = df[["open", "high", "low", "close", "volume"]].dropna()
+                    except Exception:
+                        result[sym] = self.ohlcv(sym, start, end)
+            except Exception:
+                for sym in chunk:
+                    result[sym] = self.ohlcv(sym, start, end)
+        return result
+
     def tx_costs(self, symbol: str) -> dict:
         c = TX_COSTS["au"]
         return {

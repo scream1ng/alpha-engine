@@ -9,6 +9,7 @@ import logging
 import os
 from datetime import date, timedelta
 
+import pandas as pd
 from joblib import Parallel, delayed
 
 from markets.base import MarketAdapter
@@ -163,11 +164,56 @@ def _merge_chart_export_payload(existing_payload: dict | None, market_output: di
         markets[market_key] = market_output
 
     return {
-        **market_output,
         "version": 2,
         "default_market": market_key or None,
         "markets": {key: markets[key] for key in sorted(markets)},
     }
+
+
+def _split_chart_market_payload(payload: dict, fallback_key: str | None = None) -> tuple[str | None, dict | None, dict | None]:
+    """Extract one compact market snapshot plus any inline OHLCV blob."""
+    if not isinstance(payload, dict):
+        return None, None, None
+
+    market_key = str(payload.get("market") or fallback_key or "").upper() or None
+    if not market_key:
+        return None, None, None
+
+    snapshot = dict(payload)
+    inline_ohlcv = snapshot.pop("ohlcv", None)
+    if inline_ohlcv is not None:
+        snapshot["ohlcv_file"] = snapshot.get("ohlcv_file") or f"./ohlcv_{market_key}.json"
+        if isinstance(inline_ohlcv, dict):
+            snapshot["ohlcv_symbol_count"] = len(inline_ohlcv)
+
+    return market_key, snapshot, inline_ohlcv if isinstance(inline_ohlcv, dict) else None
+
+
+def _extract_chart_export_payload(existing_payload: dict | None) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Normalize legacy/current chart exports into compact market snapshots."""
+    markets: dict[str, dict] = {}
+    ohlcv_payloads: dict[str, dict] = {}
+
+    if not isinstance(existing_payload, dict):
+        return markets, ohlcv_payloads
+
+    existing_markets = existing_payload.get("markets")
+    if isinstance(existing_markets, dict):
+        for key, payload in existing_markets.items():
+            market_key, snapshot, inline_ohlcv = _split_chart_market_payload(payload, fallback_key=str(key))
+            if not market_key or snapshot is None:
+                continue
+            markets[market_key] = snapshot
+            if inline_ohlcv:
+                ohlcv_payloads[market_key] = inline_ohlcv
+        return markets, ohlcv_payloads
+
+    market_key, snapshot, inline_ohlcv = _split_chart_market_payload(existing_payload)
+    if market_key and snapshot is not None:
+        markets[market_key] = snapshot
+    if market_key and inline_ohlcv:
+        ohlcv_payloads[market_key] = inline_ohlcv
+    return markets, ohlcv_payloads
 
 
 
@@ -317,6 +363,50 @@ def _load_regime_params(market: str, strategy_id: str, regime: str) -> dict | No
         db.close()
 
 
+def _run_regime_strategy_par(
+    strategy_id: str, strategy_cls, all_dfs: list, params: dict, capital: float,
+) -> "tuple[str, list[dict]]":
+    """Worker: single-strategy regime backtest for parallel execution."""
+    from validation.backtest import run_portfolio_backtest
+    try:
+        result = run_portfolio_backtest(all_dfs, strategy_cls(), params, initial_capital=capital)
+        return strategy_id, result.get("trades", [])
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("regime backtest error %s: %s", strategy_id, exc)
+        return strategy_id, []
+
+
+def _run_combo_par(
+    combo: dict, strategy_cls, all_dfs: list, opt_base: dict,
+    capital: float, regime_date_map: dict, target_regime: str, n_bars: int,
+) -> dict:
+    """Worker: single combo backtest for parallel optimise-regime sweep."""
+    from validation.backtest import run_portfolio_backtest
+    label = combo["_label"]
+    params = {
+        **strategy_cls().default_params,
+        **opt_base,
+        **{k: v for k, v in combo.items() if not k.startswith("_")},
+    }
+    try:
+        result = run_portfolio_backtest(all_dfs, strategy_cls(), params, initial_capital=capital)
+        trades = [
+            t for t in result.get("trades", [])
+            if regime_date_map.get(t["entry_date"], "choppy") == target_regime
+        ]
+        metrics = _p3_metrics_from_trades(trades, target_regime, regime_date_map, capital, n_bars)
+    except Exception as exc:
+        return {
+            "_label": label, "params": params, "calmar": 0.0,
+            "annual_return": 0.0, "max_drawdown": 0.0,
+            "trade_count": 0, "win_rate": 0.0, "yearly": {}, "_error": str(exc),
+        }
+    metrics["params"] = params
+    metrics["_label"] = label
+    return metrics
+
+
 def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     """5-year regime discovery: which strategies have edge in uptrend/choppy/downtrend."""
     import strategies  # noqa: F401
@@ -361,11 +451,11 @@ def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     regime_dist = regime_series.value_counts()
     total_bars  = len(regime_series)
 
-    print(f"  Fetching {len(universe)} symbols (5yr) ...", flush=True)
+    print(f"  Fetching {len(universe)} symbols (5yr, batch)...", flush=True)
+    bulk = adapter.ohlcv_bulk(universe, y5_start, today)
     all_dfs = []
-    for idx, symbol in enumerate(universe, 1):
-        print(f"  [{idx}/{len(universe)}] {symbol}", flush=True)
-        df = adapter.ohlcv(symbol, y5_start, today)
+    for symbol in universe:
+        df = bulk.get(symbol, pd.DataFrame())
         df = _attach_benchmark(df, bm_close)
         if df.empty or len(df) < 60:
             continue
@@ -378,31 +468,28 @@ def cmd_regime(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         print("  No data fetched.")
         return
 
-    print(f"\n  Done — {len(all_dfs)} symbols ready. Starting {len(strategies_map)} strategy backtests...\n")
+    print(f"\n  {len(all_dfs)}/{len(universe)} symbols ready. Running {len(strategies_map)} strategies in parallel...\n", flush=True)
 
     EDGE_CALMAR = 0.5
 
-    # Run all strategies first, collect tagged trades
+    # Run all strategies in parallel, collect tagged trades
+    par_strategy_results = Parallel(n_jobs=min(len(strategies_map), 6), backend="loky")(
+        delayed(_run_regime_strategy_par)(
+            strategy_id, strategy_cls, all_dfs,
+            {**strategy_cls().default_params, **_REGIME_DISCOVERY_PARAMS},
+            args.capital,
+        )
+        for strategy_id, strategy_cls in strategies_map.items()
+    )
     all_strategy_trades: dict[str, list[dict]] = {}
-    n_strats = len(strategies_map)
-    for s_idx, (strategy_id, strategy_cls) in enumerate(strategies_map.items(), 1):
-        print(f"  [{s_idx}/{n_strats}] {strategy_id} — running 5yr backtest ...", flush=True)
-        strategy = strategy_cls()
-        params   = {**strategy.default_params, **_REGIME_DISCOVERY_PARAMS}
-        try:
-            result = run_portfolio_backtest(all_dfs, strategy, params,
-                                            initial_capital=args.capital)
-            trades = result.get("trades", [])
-        except Exception as exc:
-            logger.warning("regime backtest error %s: %s", strategy_id, exc)
-            trades = []
-
-        tagged = []
-        for t in trades:
-            r = regime_date_map.get(t["entry_date"], "choppy")
-            tagged.append({**t, "regime": r, "year": t["entry_date"].year})
+    for strategy_id, trades in par_strategy_results:
+        tagged = [
+            {**t, "regime": regime_date_map.get(t["entry_date"], "choppy"),
+             "year": t["entry_date"].year}
+            for t in trades
+        ]
         all_strategy_trades[strategy_id] = tagged
-        print(f"  [{s_idx}/{n_strats}] {strategy_id} — done  ({len(trades)} trades)", flush=True)
+        print(f"  {strategy_id} — {len(trades)} trades", flush=True)
 
     all_years     = sorted({t["year"] for trades in all_strategy_trades.values() for t in trades})
     partial_years = {y5_start.year, today.year}
@@ -919,11 +1006,11 @@ def cmd_optimise_regime(adapter: MarketAdapter, args: argparse.Namespace) -> Non
             return
 
     universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
-    print(f"\n  Fetching {len(universe)} symbols (5yr)...", flush=True)
+    print(f"\n  Fetching {len(universe)} symbols (5yr, batch)...", flush=True)
+    bulk = adapter.ohlcv_bulk(universe, y5_start, today)
     all_dfs = []
-    for idx, symbol in enumerate(universe, 1):
-        print(f"  [{idx}/{len(universe)}] {symbol}", flush=True)
-        df = adapter.ohlcv(symbol, y5_start, today)
+    for symbol in universe:
+        df = bulk.get(symbol, pd.DataFrame())
         df = _attach_benchmark(df, bm_close)
         if df.empty or len(df) < 60:
             continue
@@ -981,54 +1068,41 @@ def cmd_optimise_regime(adapter: MarketAdapter, args: argparse.Namespace) -> Non
             "trendline_breakout":  _TL_OPT_COMBOS,
             "pullback_buy":        _PB_OPT_COMBOS,
             "reversal":            _REV_OPT_COMBOS,
-            "narrow_range":        _NR_OPT_COMBOS,
         }.get(strategy_id, _build_opt_combos())
-        combo_results: list[dict] = []
-        best: dict | None = None
         n_combos = len(pair_combos)
         pair_t0 = time.time()
-
         opt_base = _OPT_REGIME_BASE
-        for combo_idx, combo in enumerate(pair_combos, 1):
-            label  = combo["_label"]
-            params = {
-                **strategy_cls().default_params,
-                **opt_base,
-                **{k: v for k, v in combo.items() if not k.startswith("_")},
-            }
-            try:
-                result = run_portfolio_backtest(all_dfs, strategy_cls(), params,
-                                               initial_capital=args.capital)
-                trades = [
-                    t for t in result.get("trades", [])
-                    if regime_date_map.get(t["entry_date"], "choppy") == target_regime
-                ]
-                metrics = _p3_metrics_from_trades(
-                    trades, target_regime, regime_date_map, args.capital, n_bars
-                )
-            except Exception as exc:
-                print(f"  {label:<32} ERROR: {exc}")
-                continue
 
-            metrics["params"]  = params
-            metrics["_label"]  = label
+        n_workers = min(n_combos, 16)
+        print(f"  Running {n_combos} combos ({n_workers} parallel workers)...", flush=True)
+        raw_metrics = Parallel(n_jobs=n_workers, backend="loky")(
+            delayed(_run_combo_par)(
+                combo, strategy_cls, all_dfs, opt_base,
+                args.capital, regime_date_map, target_regime, n_bars,
+            )
+            for combo in pair_combos
+        )
+        elapsed_par = time.time() - pair_t0
+        print(f"  Done in {elapsed_par:.0f}s", flush=True)
+
+        combo_results: list[dict] = []
+        best: dict | None = None
+        for metrics in raw_metrics:
+            if "_error" in metrics:
+                print(f"  {metrics['_label']:<32} ERROR: {metrics['_error']}")
+                continue
             cal = float(metrics.get("calmar", 0) or 0)
             ret = float(metrics.get("annual_return", 0) or 0) * 100
             dd  = float(metrics.get("max_drawdown", 0) or 0) * 100
             tr  = int(metrics.get("trade_count", 0) or 0)
             wr  = float(metrics.get("win_rate", 0) or 0) * 100
-            elapsed = time.time() - pair_t0
-            avg_per = elapsed / combo_idx
-            eta_secs = avg_per * (n_combos - combo_idx)
-            eta_str = f"{int(eta_secs//60)}m{int(eta_secs%60):02d}s" if eta_secs >= 60 else f"{int(eta_secs)}s"
-            timing = f"[{combo_idx}/{n_combos} +{elapsed:.0f}s eta {eta_str}]"
             yearly = metrics.get("yearly", {})
             yr_cols = "  ".join(
                 f"{yearly[y]:>+{YW}.1f}%" if y in yearly else f"{'—':>{YW}}"
                 for y in all_years
             )
             best_marker = " *" if best is None or cal > float(best.get("calmar", 0) or 0) else "  "
-            print(f"  {best_marker}{label:<30} {cal:>8.2f} {ret:>+8.1f}% {dd:>6.1f}% {tr:>7d} {wr:>5.0f}%  {yr_cols}  {timing}", flush=True)
+            print(f"  {best_marker}{metrics['_label']:<30} {cal:>8.2f} {ret:>+8.1f}% {dd:>6.1f}% {tr:>7d} {wr:>5.0f}%  {yr_cols}", flush=True)
             combo_results.append(metrics)
             if best is None or cal > float(best.get("calmar", 0) or 0):
                 best = metrics
@@ -1802,7 +1876,7 @@ _ENTRY_VARIANTS = [
 
 # intraday_breakout fills same bar at prev_high+tick (not close) — tighter RR justified by better entry price
 _INTRADAY_ENTRY_BASE = {"sl_atr_mult": 1.0, "tp1_atr_mult": 2.0}
-_INTRADAY_STRATEGIES = {"pivot_breakout", "trendline_breakout", "narrow_range"}
+_INTRADAY_STRATEGIES = {"pivot_breakout", "trendline_breakout"}
 
 
 def cmd_intraday_entry_test(adapter: MarketAdapter, args: argparse.Namespace) -> None:
@@ -2122,6 +2196,72 @@ def cmd_intraday_fakeout_study(adapter: MarketAdapter, args: argparse.Namespace)
     print(f"{'='*W}\n")
 
 
+def _write_learn_ohlcv(
+    strategies_out: list,
+    ohlcv_cache: dict,
+    docs_dir: str,
+    market_key: str,
+    today,
+) -> str:
+    """Slice ohlcv_cache to learning-section symbols only and write ohlcv_<MKT>_learn.json.
+
+    Returns the filename (relative to docs_dir).
+    """
+    needed: dict = {}
+    for strat in strategies_out:
+        pos_map: dict = {}
+        for sym_row in strat.get("symbols", []):
+            sym = sym_row.get("symbol", "")
+            for t in sym_row.get("trades", []):
+                pid = t.get("position_id") or f"{t.get('entry_date','')}_{t.get('entry_price','')}_{sym}"
+                if pid not in pos_map:
+                    pos_map[pid] = {
+                        "symbol": sym,
+                        "pnl": 0.0,
+                        "entry_date": t.get("entry_date", ""),
+                        "exit_date": t.get("exit_date", ""),
+                    }
+                pos_map[pid]["pnl"] += float(t.get("pnl", 0))
+                if t.get("exit_date", "") > pos_map[pid]["exit_date"]:
+                    pos_map[pid]["exit_date"] = t.get("exit_date", "")
+        if not pos_map:
+            continue
+        positions = sorted(
+            pos_map.values(),
+            key=lambda p: p["pnl"] + 1e9 if p["pnl"] > 0 else p["pnl"],
+            reverse=True,
+        )
+        best = positions[0]
+        sym = best["symbol"]
+        if sym not in needed:
+            needed[sym] = (best["entry_date"], best["exit_date"])
+        else:
+            cur_entry, cur_exit = needed[sym]
+            needed[sym] = (
+                min(cur_entry, best["entry_date"]),
+                max(cur_exit, best["exit_date"]),
+            )
+
+    result: dict = {}
+    for sym, (entry_date, exit_date) in needed.items():
+        rows = ohlcv_cache.get(sym, [])
+        dates = sorted(b["time"] for b in rows)
+        entry_idx = next((i for i, d in enumerate(dates) if d >= entry_date), len(dates))
+        start_idx = max(0, entry_idx - 120)
+        start_date = dates[start_idx] if dates else entry_date
+        exit_idx = next((i for i, d in enumerate(dates) if d > exit_date), len(dates))
+        end_idx = min(len(dates) - 1, exit_idx + 20)
+        end_date = dates[end_idx] if dates else exit_date
+        result[sym] = [b for b in rows if start_date <= b["time"] <= end_date]
+
+    learn_filename = "ohlcv_learn.json"
+    learn_path = os.path.join(docs_dir, learn_filename)
+    with open(learn_path, "w", encoding="utf-8") as fh:
+        json.dump({"generated": str(today), "market": market_key, "ohlcv": result}, fh, default=str, separators=(",", ":"))
+    logger.info("chart-export: wrote %s (%d symbols)", learn_filename, len(result))
+    return learn_filename
+
+
 def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     """Export per-symbol candlestick + trade data for optimised strategies → docs/chart_data.json."""
     import strategies  # noqa: F401
@@ -2362,6 +2502,8 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         "ohlcv":          ohlcv_cache,
     }
 
+    total_syms = len(ohlcv_cache)
+    total_trades = sum(len(s["trades"]) for st in strategies_out for s in st["symbols"])
     docs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
     os.makedirs(docs_dir, exist_ok=True)
     out_path = os.path.join(docs_dir, "chart_data.json")
@@ -2372,11 +2514,53 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
                 existing_payload = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("chart-export could not read existing payload %s: %s", out_path, exc)
-    merged_output = _merge_chart_export_payload(existing_payload, output)
+
+    market_key = market.upper()
+    ohlcv_filename = f"ohlcv_{market_key}.json"
+    ohlcv_path = os.path.join(docs_dir, ohlcv_filename)
+    with open(ohlcv_path, "w", encoding="utf-8") as fh:
+        json.dump({
+            "generated": str(today),
+            "market": market_key,
+            "ohlcv": ohlcv_cache,
+        }, fh, default=str, separators=(",", ":"))
+
+    learn_filename = _write_learn_ohlcv(strategies_out, ohlcv_cache, docs_dir, market_key, today)
+
+    from collections import defaultdict
+    _ryc: dict = defaultdict(lambda: defaultdict(int))
+    for _d, _r in regime_date_map.items():
+        _ryc[str(_d)[:4]][_r] += 1
+    regime_year_weights = {
+        yr: {r: round(c / sum(counts.values()), 4) for r, c in counts.items()}
+        for yr, counts in _ryc.items()
+    }
+
+    compact_output = {
+        "generated": output["generated"],
+        "market": output["market"],
+        "current_regime": output["current_regime"],
+        "regime_map": output["regime_map"],
+        "regime_year_weights": regime_year_weights,
+        "strategies": output["strategies"],
+        "ohlcv_file": f"./{learn_filename}",
+        "ohlcv_symbol_count": total_syms,
+    }
+
+    existing_markets, existing_ohlcv = _extract_chart_export_payload(existing_payload)
+    existing_markets[market_key] = compact_output
+    existing_ohlcv[market_key] = ohlcv_cache
+    for existing_key, existing_series in existing_ohlcv.items():
+        legacy_ohlcv_path = os.path.join(docs_dir, f"ohlcv_{existing_key}.json")
+        with open(legacy_ohlcv_path, "w", encoding="utf-8") as fh:
+            json.dump({
+                "market": existing_key,
+                "ohlcv": existing_series,
+            }, fh, default=str, separators=(",", ":"))
+
+    merged_output = _merge_chart_export_payload(existing_markets, compact_output)
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(merged_output, fh, default=str, separators=(",", ":"))
-    total_syms = len(ohlcv_cache)
-    total_trades = sum(len(s["trades"]) for st in strategies_out for s in st["symbols"])
     print(f"\n  {len(strategies_out)} strategies · {total_syms} symbols · {total_trades} trades → {out_path}")
     _export_chart_export_markdown(
         market=market,

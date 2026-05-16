@@ -6,5 +6,4 @@ from strategies import (  # noqa: F401
     reversal,
     bb_squeeze,
     ma_cross,
-    narrow_range,
 )

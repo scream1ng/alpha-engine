@@ -14,18 +14,18 @@ _TV_MARKET_MAP = {
 _STOCK_TYPE_FILTER = {"left": "type", "operation": "equal", "right": "stock"}
 _MIN_TURNOVER = {
     "th": 10_000_000,
-    "us": 20_000_000,
+    "us": 50_000_000,
     "au": 1_000_000,
 }
 _TV_FETCH_CAP = {
-    "th": 3000,
-    "us": 3000,
-    "au": 2000,
+    "th": 300,
+    "us": 500,
+    "au": 400,
 }
 _MIN_PRICE = {
     "th": 1.0,
     "us": 1.0,
-    "au": 0.20,
+    "au": 0.50,
 }
 
 # In-process cache: {(market_id, top_n): (fetched_at, symbols)}
@@ -102,10 +102,10 @@ def _fallback_stubs(market_id: str, top_n: int | None = None) -> list[str]:
             "CSL.AX", "WES.AX", "MQG.AX", "TLS.AX", "RIO.AX",
         ],
         "crypto": [
-            "BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "ADA-USD",
-            "XRP-USD", "DOGE-USD", "DOT-USD", "AVAX-USD", "MATIC-USD",
+            "BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD",
+            "XRP-USD", "ADA-USD", "AVAX-USD", "DOT-USD",
         ],
-        "commodity": ["GC=F", "CL=F", "SI=F", "NG=F", "HG=F"],
+        "commodity": ["GC=F", "SI=F", "CL=F", "BZ=F", "NG=F", "HG=F"],
     }
     symbols = list(stubs.get(market_id, []))
     return symbols if top_n is None else symbols[:top_n]
