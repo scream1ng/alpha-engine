@@ -2389,23 +2389,6 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
 
     strategies_map = StrategyRegistry.for_market(market)
 
-    def _ohlcv_5yr(symbol: str) -> list:
-        df = symbol_df_map.get(symbol)
-        if df is None:
-            return []
-        rows = []
-        for ts, row in df.iterrows():
-            d = ts.date() if hasattr(ts, "date") else ts
-            rows.append({
-                "time":   d.isoformat(),
-                "open":   round(float(row["open"]),  2),
-                "high":   round(float(row["high"]),  2),
-                "low":    round(float(row["low"]),   2),
-                "close":  round(float(row["close"]), 2),
-                "volume": int(row["volume"]) if "volume" in row.index and row["volume"] == row["volume"] else 0,
-            })
-        return rows
-
     # Build date→ATR lookup per symbol (for SL/TP price computation)
     symbol_atr: dict = {}
     for sym, df in symbol_df_map.items():
@@ -2418,7 +2401,6 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
 
     print(f"\n  Running {len(opt_rows)} optimised backtests ...", flush=True)
     strategies_out: list = []
-    ohlcv_cache: dict = {}
 
     for opt_row in opt_rows:
         s_id   = opt_row.strategy
@@ -2496,9 +2478,6 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
                 "win_count":   wins,
                 "trades":      trade_list,
             })
-            if sym not in ohlcv_cache:
-                ohlcv_cache[sym] = _ohlcv_5yr(sym)
-
         # indicator params so the chart knows what to render
         indicator_params: dict = {"ema_exit": ema_p}
         if s_id == "ma_cross":
@@ -2548,16 +2527,6 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             "symbols":          symbols_out,
         })
 
-    output = {
-        "generated":      str(today),
-        "market":         market.upper(),
-        "current_regime": current_regime,
-        "regime_map":     regime_map,
-        "strategies":     strategies_out,
-        "ohlcv":          ohlcv_cache,
-    }
-
-    total_syms = len(ohlcv_cache)
     total_trades = sum(len(s["trades"]) for st in strategies_out for s in st["symbols"])
     docs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
     os.makedirs(docs_dir, exist_ok=True)
@@ -2571,16 +2540,6 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             logger.warning("chart-export could not read existing payload %s: %s", out_path, exc)
 
     market_key = market.upper()
-    ohlcv_filename = f"ohlcv_{market_key}.json"
-    ohlcv_path = os.path.join(docs_dir, ohlcv_filename)
-    with open(ohlcv_path, "w", encoding="utf-8") as fh:
-        json.dump({
-            "generated": str(today),
-            "market": market_key,
-            "ohlcv": ohlcv_cache,
-        }, fh, default=str, separators=(",", ":"))
-
-    learn_filename = _write_learn_ohlcv(strategies_out, ohlcv_cache, docs_dir, market_key, today)
 
     from collections import defaultdict
     _ryc: dict = defaultdict(lambda: defaultdict(int))
@@ -2592,37 +2551,24 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     }
 
     compact_output = {
-        "generated": output["generated"],
-        "market": output["market"],
-        "current_regime": output["current_regime"],
-        "regime_map": output["regime_map"],
+        "generated":      str(today),
+        "market":         market_key,
+        "current_regime": current_regime,
+        "regime_map":     regime_map,
         "regime_year_weights": regime_year_weights,
-        "strategies": output["strategies"],
-        "ohlcv_file": f"./{learn_filename}",
-        "ohlcv_symbol_count": total_syms,
+        "strategies":     strategies_out,
     }
 
-    existing_markets, existing_ohlcv = _extract_chart_export_payload(existing_payload)
-    existing_markets[market_key] = compact_output
-    existing_ohlcv[market_key] = ohlcv_cache
-    for existing_key, existing_series in existing_ohlcv.items():
-        legacy_ohlcv_path = os.path.join(docs_dir, f"ohlcv_{existing_key}.json")
-        with open(legacy_ohlcv_path, "w", encoding="utf-8") as fh:
-            json.dump({
-                "market": existing_key,
-                "ohlcv": existing_series,
-            }, fh, default=str, separators=(",", ":"))
-
-    merged_output = _merge_chart_export_payload(existing_markets, compact_output)
+    merged_output = _merge_chart_export_payload(existing_payload, compact_output)
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(merged_output, fh, default=str, separators=(",", ":"))
-    print(f"\n  {len(strategies_out)} strategies · {total_syms} symbols · {total_trades} trades → {out_path}")
+    print(f"\n  {len(strategies_out)} strategies · {total_trades} trades → {out_path}")
     _export_chart_export_markdown(
         market=market,
         as_of=today,
         current_regime=current_regime,
         strategies_out=strategies_out,
-        total_symbols=total_syms,
+        total_symbols=len(symbol_df_map),
         total_trades=total_trades,
         output_path=out_path,
     )

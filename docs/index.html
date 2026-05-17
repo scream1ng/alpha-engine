@@ -261,7 +261,7 @@ const LEARNING_DATA_URL = './learning_data.json';
 const API_BASE = window.ALPHA_API_BASE || (location.protocol === 'file:' ? '' : location.origin);
 const CHART_LIB_URL = 'https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js';
 const MARKET_STORAGE_KEY = 'alpha-engine-active-market';
-let D = null, ACTIVE_MARKET = null, _charts = [], _ohlcvCache = {}, _symbolOhlcvCache = {}, _learningTimer = null, _learningAutoTimer = null, _learningState = null, _learningLessonCatalog = null;
+let D = null, ACTIVE_MARKET = null, _charts = [], _symbolOhlcvCache = {}, _learningTimer = null, _learningAutoTimer = null, _learningState = null, _learningLessonCatalog = null;
 
 function normalizePayload(raw) {
   if (raw && typeof raw === 'object' && raw.markets && typeof raw.markets === 'object') {
@@ -291,79 +291,30 @@ function currentData() {
   return key && D && D.markets ? D.markets[key] : null;
 }
 
-async function loadOhlcvForActiveMarket() {
-  const marketKey = activeMarketKey();
-  const data = currentData();
-  if (!marketKey || !data) return {};
-  if (_ohlcvCache[marketKey]) return _ohlcvCache[marketKey];
-  if (data.ohlcv && typeof data.ohlcv === 'object') {
-    _ohlcvCache[marketKey] = data.ohlcv;
-    return data.ohlcv;
-  }
-
-  const candidates = [];
-  const addCandidate = url => {
-    if (url && !candidates.includes(url)) candidates.push(url);
-  };
-  addCandidate(data.ohlcv_file);
-  addCandidate('./ohlcv_' + marketKey + '_learn.json');
-  addCandidate('./ohlcv_' + marketKey + '.json');
-  addCandidate('./ohlcv_learn.json');
-
-  let lastError = null;
-  for (const url of candidates) {
-    try {
-      const r = await fetch(url);
-      if (!r.ok) {
-        lastError = new Error('HTTP ' + r.status + ' loading ' + url);
-        continue;
-      }
-      const raw = await r.json();
-      const rawMarket = raw && raw.market ? String(raw.market).toUpperCase() : null;
-      if (rawMarket && rawMarket !== marketKey) {
-        lastError = new Error('Market mismatch loading ' + url);
-        continue;
-      }
-      const ohlcv = raw && raw.ohlcv ? raw.ohlcv : raw;
-      if (ohlcv && typeof ohlcv === 'object') {
-        _ohlcvCache[marketKey] = ohlcv;
-        data.ohlcv = ohlcv;
-        return ohlcv;
-      }
-    } catch (err) {
-      lastError = err;
-    }
-  }
-
-  if (lastError) throw lastError;
-  _ohlcvCache[marketKey] = {};
-  return _ohlcvCache[marketKey];
-}
-
 async function loadOhlcvForSymbol(symbol) {
   const marketKey = activeMarketKey();
   const cacheKey = marketKey + ':' + symbol;
   if (_symbolOhlcvCache[cacheKey]) return _symbolOhlcvCache[cacheKey];
 
-  if (API_BASE && marketKey && symbol) {
-    try {
-      const url = API_BASE.replace(/\/$/, '') + '/api/ohlcv?market=' + encodeURIComponent(marketKey) + '&symbol=' + encodeURIComponent(symbol);
-      const r = await fetch(url, {headers:{accept:'application/json'}});
-      if (r.ok) {
-        const payload = await r.json();
-        const rows = payload && Array.isArray(payload.ohlcv) ? payload.ohlcv : null;
-        if (rows && rows.length) {
-          _symbolOhlcvCache[cacheKey] = rows;
-          return rows;
-        }
-      }
-    } catch (_) {}
-  }
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?range=5y&interval=1d';
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Yahoo Finance fetch failed (' + r.status + ') for ' + symbol);
+  const json = await r.json();
+  const result = json && json.chart && json.chart.result && json.chart.result[0];
+  if (!result) throw new Error('No data from Yahoo Finance for ' + symbol);
+  const timestamps = result.timestamp || [];
+  const q = (result.indicators && result.indicators.quote && result.indicators.quote[0]) || {};
+  const bars = timestamps.map((ts, i) => ({
+    time:   new Date(ts * 1000).toISOString().slice(0, 10),
+    open:   q.open[i]   != null ? Math.round(q.open[i]   * 100) / 100 : null,
+    high:   q.high[i]   != null ? Math.round(q.high[i]   * 100) / 100 : null,
+    low:    q.low[i]    != null ? Math.round(q.low[i]    * 100) / 100 : null,
+    close:  q.close[i]  != null ? Math.round(q.close[i]  * 100) / 100 : null,
+    volume: q.volume[i] || 0,
+  })).filter(b => b.open != null && b.close != null);
 
-  const local = await loadOhlcvForActiveMarket();
-  const rows = local[symbol] || [];
-  if (rows.length) _symbolOhlcvCache[cacheKey] = rows;
-  return rows;
+  _symbolOhlcvCache[cacheKey] = bars;
+  return bars;
 }
 
 async function ensureChartLibrary() {
@@ -2098,28 +2049,25 @@ async function renderLearningLesson(stratId, regime) {
       return;
     }
   } else {
-    let ohlcvMap;
-    try {
-      ohlcvMap = await loadOhlcvForActiveMarket();
-      await ensureChartLibrary();
-    } catch (err) {
-      document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
-      return;
-    }
-
     const allPositions = extractLearningPositions(lesson.strategy.symbols || [])
       .sort((a, b) => learningRealRepresentativeScore(b) - learningRealRepresentativeScore(a));
-    const position = allPositions.find(p => ohlcvMap[p.symbol] && ohlcvMap[p.symbol].length) || allPositions[0] || null;
+    const position = allPositions[0] || null;
     if (!position) {
       document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No representative trade found for this lesson.</div>';
       return;
     }
-    const ohlcv = ohlcvMap[position.symbol];
-    if (!ohlcv || !ohlcv.length) {
-      document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for the lesson source symbol.</div>';
+    try {
+      await ensureChartLibrary();
+      const ohlcv = await loadOhlcvForSymbol(position.symbol);
+      if (!ohlcv || !ohlcv.length) {
+        document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for the lesson source symbol.</div>';
+        return;
+      }
+      windowData = learningRealBuildWindow(position, ohlcv);
+    } catch (err) {
+      document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
       return;
     }
-    windowData = learningRealBuildWindow(position, ohlcv);
   }
   if (!windowData) {
     document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Could not build a lesson window from the exported trade history.</div>';
