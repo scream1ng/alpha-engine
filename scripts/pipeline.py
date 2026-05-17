@@ -1065,7 +1065,6 @@ def cmd_optimise_regime(adapter: MarketAdapter, args: argparse.Namespace) -> Non
             "pivot_breakout":      _PIVOT_OPT_COMBOS,
             "bb_squeeze":          _BB_OPT_COMBOS,
             "ma_cross":            _MA_OPT_COMBOS,
-            "trendline_breakout":  _TL_OPT_COMBOS,
             "pullback_buy":        _PB_OPT_COMBOS,
             "reversal":            _REV_OPT_COMBOS,
         }.get(strategy_id, _build_opt_combos())
@@ -1876,7 +1875,7 @@ _ENTRY_VARIANTS = [
 
 # intraday_breakout fills same bar at prev_high+tick (not close) — tighter RR justified by better entry price
 _INTRADAY_ENTRY_BASE = {"sl_atr_mult": 1.0, "tp1_atr_mult": 2.0}
-_INTRADAY_STRATEGIES = {"pivot_breakout", "trendline_breakout"}
+_INTRADAY_STRATEGIES = {"pivot_breakout"}
 
 
 def cmd_intraday_entry_test(adapter: MarketAdapter, args: argparse.Namespace) -> None:
@@ -2196,6 +2195,31 @@ def cmd_intraday_fakeout_study(adapter: MarketAdapter, args: argparse.Namespace)
     print(f"{'='*W}\n")
 
 
+def _learn_representative_score(pos: dict) -> float:
+    """Mirror of learningRealRepresentativeScore in index.html."""
+    import re as _re
+    bars_held = pos.get("bars_held") or 0
+    exits = pos.get("exits", [])
+    last_exit = exits[-1] if exits else {}
+    final_reason = str(last_exit.get("exit_reason") or "").lower()
+    has_runner = any(_re.search(r"ema|trail|tp2", str(e.get("exit_reason") or "").lower()) for e in exits)
+    entry_price = pos.get("entry_price") or 0
+    score = 100.0 if pos.get("pnl", 0) > 0 else -40.0
+    score += 10 if pos.get("stop_price") is not None else 0
+    score += 10 if pos.get("tp1_price") is not None else 0
+    score += 50 if has_runner else 0
+    if _re.search(r"ema|trail", final_reason):
+        score += 70
+    elif final_reason == "tp2":
+        score += 35
+    elif final_reason == "tp1":
+        score -= 30
+    score -= abs(bars_held - 22) * 0.9
+    score -= 20 if 0 < entry_price < 0.1 else 0
+    score -= 10 if entry_price > 300 else 0
+    return score
+
+
 def _write_learn_ohlcv(
     strategies_out: list,
     ohlcv_cache: dict,
@@ -2207,40 +2231,71 @@ def _write_learn_ohlcv(
 
     Returns the filename (relative to docs_dir).
     """
+    # Candidates mirror learningRealCandidates() in index.html
+    _LEARN_CANDIDATES = [
+        {"id": "pivot_breakout",     "regimes": ["uptrend", "downtrend"]},
+        {"id": "pullback_buy",       "regimes": ["uptrend", "downtrend"]},
+        {"id": "ma_cross",           "regimes": ["uptrend", "downtrend"]},
+        {"id": "reversal",           "regimes": ["choppy", "downtrend"]},
+        {"id": "bb_squeeze",         "regimes": ["choppy", "uptrend", "downtrend"]},
+    ]
+    strat_map = {(s.get("id", ""), s.get("regime", "")): s for s in strategies_out}
+
     needed: dict = {}
-    for strat in strategies_out:
-        pos_map: dict = {}
-        for sym_row in strat.get("symbols", []):
-            sym = sym_row.get("symbol", "")
-            for t in sym_row.get("trades", []):
-                pid = t.get("position_id") or f"{t.get('entry_date','')}_{t.get('entry_price','')}_{sym}"
-                if pid not in pos_map:
-                    pos_map[pid] = {
-                        "symbol": sym,
-                        "pnl": 0.0,
-                        "entry_date": t.get("entry_date", ""),
-                        "exit_date": t.get("exit_date", ""),
-                    }
-                pos_map[pid]["pnl"] += float(t.get("pnl", 0))
-                if t.get("exit_date", "") > pos_map[pid]["exit_date"]:
-                    pos_map[pid]["exit_date"] = t.get("exit_date", "")
-        if not pos_map:
+    for spec in _LEARN_CANDIDATES:
+        # For each candidate pick the best (regime, position) pair — same as collectLearningLessons
+        best_score = None
+        best_pos = None
+        for reg in spec["regimes"]:
+            strat = strat_map.get((spec["id"], reg))
+            if not strat:
+                continue
+            pos_map: dict = {}
+            for sym_row in strat.get("symbols", []):
+                sym = sym_row.get("symbol", "")
+                for t in sym_row.get("trades", []):
+                    pid = t.get("position_id") or f"{t.get('entry_date','')}_{t.get('entry_price','')}_{sym}"
+                    if pid not in pos_map:
+                        pos_map[pid] = {
+                            "symbol": sym,
+                            "pnl": 0.0,
+                            "entry_date": t.get("entry_date", ""),
+                            "exit_date": t.get("exit_date", ""),
+                            "entry_price": t.get("entry_price"),
+                            "stop_price": t.get("sl_price"),
+                            "tp1_price": t.get("tp1_price"),
+                            "bars_held": 0,
+                            "exits": [],
+                        }
+                    row = pos_map[pid]
+                    row["pnl"] += float(t.get("pnl", 0))
+                    if t.get("exit_date", "") > row["exit_date"]:
+                        row["exit_date"] = t.get("exit_date", "")
+                    if row["stop_price"] is None and t.get("sl_price") is not None:
+                        row["stop_price"] = t.get("sl_price")
+                    if row["tp1_price"] is None and t.get("tp1_price") is not None:
+                        row["tp1_price"] = t.get("tp1_price")
+                    row["bars_held"] = max(row["bars_held"], int(t.get("bars_held") or 0))
+                    row["exits"].append({"exit_date": t.get("exit_date", ""), "exit_reason": t.get("exit_reason", "")})
+            if not pos_map:
+                continue
+            for row in pos_map.values():
+                row["exits"].sort(key=lambda e: e["exit_date"])
+            regime_best = max(pos_map.values(), key=_learn_representative_score)
+            sc = _learn_representative_score(regime_best)
+            if best_score is None or sc > best_score:
+                best_score = sc
+                best_pos = regime_best
+        if not best_pos:
             continue
-        positions = sorted(
-            pos_map.values(),
-            key=lambda p: p["pnl"] + 1e9 if p["pnl"] > 0 else p["pnl"],
-            reverse=True,
-        )
-        best = positions[0]
-        sym = best["symbol"]
+        sym = best_pos["symbol"]
+        entry_date = best_pos["entry_date"]
+        exit_date = best_pos["exit_date"]
         if sym not in needed:
-            needed[sym] = (best["entry_date"], best["exit_date"])
+            needed[sym] = (entry_date, exit_date)
         else:
             cur_entry, cur_exit = needed[sym]
-            needed[sym] = (
-                min(cur_entry, best["entry_date"]),
-                max(cur_exit, best["exit_date"]),
-            )
+            needed[sym] = (min(cur_entry, entry_date), max(cur_exit, exit_date))
 
     result: dict = {}
     for sym, (entry_date, exit_date) in needed.items():
@@ -2254,7 +2309,7 @@ def _write_learn_ohlcv(
         end_date = dates[end_idx] if dates else exit_date
         result[sym] = [b for b in rows if start_date <= b["time"] <= end_date]
 
-    learn_filename = "ohlcv_learn.json"
+    learn_filename = f"ohlcv_{market_key}_learn.json"
     learn_path = os.path.join(docs_dir, learn_filename)
     with open(learn_path, "w", encoding="utf-8") as fh:
         json.dump({"generated": str(today), "market": market_key, "ohlcv": result}, fh, default=str, separators=(",", ":"))

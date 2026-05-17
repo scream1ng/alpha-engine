@@ -18,7 +18,6 @@ STRATEGY_IDS = [
     "ma_cross",
     "reversal",
     "bb_squeeze",
-    "trendline_breakout",
 ]
 
 # ── teaching score — tp2 hit is the goal ────────────────────────────────────

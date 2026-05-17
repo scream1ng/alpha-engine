@@ -861,11 +861,6 @@ function learningChecklist(strategyId, lesson) {
       'Price is close enough to the trigger that the breakout is actionable now.',
       'Volume participation should support the break instead of fading it.',
     ],
-    trendline_breakout: [
-      'A swing ceiling is visible and price is leaning into it.',
-      'The trend backdrop is still supportive before the break happens.',
-      'The breakout candle must clear the trigger, not just touch nearby resistance.',
-    ],
     pullback_buy: [
       'The broader trend is intact before the pullback starts.',
       'Price pulls back into a zone where demand can reasonably re-enter.',
@@ -917,42 +912,6 @@ function learningPivotBreakoutGuide(state, visibleStartIdx, visibleEndIdx) {
   }));
 }
 
-function learningTrendlineBreakoutGuide(state, visibleStartIdx, visibleEndIdx) {
-  const p = (state.lesson.strategy && state.lesson.strategy.params) || {};
-  const swingPeriod = Math.max(1, parseInt(p.swing_period || 3, 10));
-  const anchorLookback = Math.max(10, parseInt(p.anchor_lookback || 60, 10));
-  const currentIdx = state.entryIdx;
-  const searchStart = Math.max(swingPeriod, currentIdx - anchorLookback - swingPeriod * 2);
-  const swingHighs = [];
-
-  for (let i = searchStart; i < currentIdx - swingPeriod; i++) {
-    const left = state.bars.slice(i - swingPeriod, i).map(bar => bar.high);
-    const right = state.bars.slice(i + 1, i + swingPeriod + 1).map(bar => bar.high);
-    if (left.length < swingPeriod || right.length < swingPeriod) continue;
-    if (state.bars[i].high > Math.max(...left) && state.bars[i].high >= Math.max(...right)) {
-      swingHighs.push({idx: i, price: state.bars[i].high});
-    }
-  }
-  if (swingHighs.length < 2) return null;
-
-  const anchorCandidates = swingHighs.filter(point => point.idx >= currentIdx - anchorLookback);
-  if (!anchorCandidates.length) return null;
-  const anchor = anchorCandidates.reduce((best, point) => point.price > best.price ? point : best, anchorCandidates[0]);
-  const lowerPivots = swingHighs.filter(point => point.idx > anchor.idx && point.price < anchor.price);
-  if (!lowerPivots.length) return null;
-  const pivot = lowerPivots[lowerPivots.length - 1];
-  const span = pivot.idx - anchor.idx;
-  if (span <= 0) return null;
-
-  const slope = (pivot.price - anchor.price) / span;
-  const lineStart = Math.max(visibleStartIdx, anchor.idx);
-  const points = [];
-  for (let i = lineStart; i <= visibleEndIdx; i++) {
-    points.push({time: state.bars[i].time, value: anchor.price + slope * (i - anchor.idx)});
-  }
-  return {points, anchor, pivot};
-}
-
 function learningPullbackBuyGuide(state, visibleStartIdx, visibleEndIdx) {
   const p = (state.lesson.strategy && state.lesson.strategy.params) || {};
   const lookback = Math.max(1, parseInt(p.lookback || 10, 10));
@@ -985,7 +944,6 @@ function learningLessonCandidates() {
     {id:'ma_cross', regimes:['uptrend','downtrend']},
     {id:'reversal', regimes:['choppy','downtrend']},
     {id:'bb_squeeze', regimes:['choppy','uptrend','downtrend']},
-    {id:'trendline_breakout', regimes:['downtrend']},
   ];
 }
 
@@ -1080,13 +1038,6 @@ function learningCopyForStrategy(id) {
       trigger: 'The setup becomes live only when the breakout candle trades through the trigger line.',
       management: 'The stop stays under the structure and the first target pays for the breakout.',
     },
-    trendline_breakout: {
-      title: 'Trendline Breakout',
-        summary: 'Real trade window with lower highs first, then a clean push through resistance.',
-      setup: 'Price presses against a falling ceiling instead of trying to bounce randomly inside weakness.',
-      trigger: 'Entry happens only when the breakout candle actually clears that ceiling.',
-      management: 'The stop stays below the reclaimed structure so failed breaks get cut quickly.',
-    },
     pullback_buy: {
       title: 'Pullback Buy',
         summary: 'Real trade window that slows into support, then shows demand step back in.',
@@ -1159,10 +1110,10 @@ function learningIndicatorSpecs(strategyId, lesson) {
     specs.push({name:'EMA' + (ip.ma_fast || 10), color:'#d97706', desc:'Fast momentum line. The lesson shows when the fast line regains control.'});
     if ((ip.ma_slow || 20) !== 50 && (ip.ma_slow || 20) !== 200) specs.push({name:'SMA' + (ip.ma_slow || 20), color:'#0969da', desc:'Slow trend filter. Confirms whether the fast line is aligned with the larger move.'});
   }
-  if (strategyId === 'pivot_breakout' || strategyId === 'trendline_breakout') {
+  if (strategyId === 'pivot_breakout') {
     specs.push({name:'Trigger Line', color:'#0969da', desc:'The price level that must actually trade for the entry to become live.'});
   }
-  if (strategyId === 'bb_squeeze' || strategyId === 'pivot_breakout' || strategyId === 'trendline_breakout') {
+  if (strategyId === 'bb_squeeze' || strategyId === 'pivot_breakout') {
     specs.push({name:'Volume / RVOL', color:'#9a6700', desc:'Used as participation confirmation. Breakouts without volume are lower quality.'});
   }
   return specs;
@@ -1170,7 +1121,7 @@ function learningIndicatorSpecs(strategyId, lesson) {
 
 function learningPanelsForStrategy(strategyId) {
   return {
-    showVolume: strategyId === 'pivot_breakout' || strategyId === 'trendline_breakout' || strategyId === 'bb_squeeze',
+    showVolume: strategyId === 'pivot_breakout' || strategyId === 'bb_squeeze',
     showRsi: strategyId === 'reversal',
   };
 }
@@ -1356,31 +1307,6 @@ function buildMockLearningLessons() {
       overridesLocal: {
         24: {open:75.94, low:75.82, high:76.18, close:76.05, volume:98000},
         25: {open:76.02, low:75.98, high:76.58, close:76.4, volume:126000},
-      },
-    },
-    {
-      id: 'trendline_breakout',
-      regime: 'downtrend',
-      focus: 'Require price to reclaim a falling ceiling before assuming the market has changed character.',
-      indicator_params: {},
-      pattern: [].concat(
-        learningRamp(58.5, 51.2, 14, 0.3),
-        [51.0, 50.7, 50.5, 50.3, 50.2, 50.1, 50.0, 49.95, 49.9],
-        [50.1, 50.35, 50.6, 51.1, 51.9, 52.8, 53.5, 54.0, 54.4]
-      ),
-      volumes: [].concat(
-        Array(14).fill(98000),
-        Array(9).fill(76000),
-        [80000, 84000, 90000, 120000, 156000, 178000, 164000, 150000, 142000]
-      ),
-      entryIdxLocal: 26,
-      exitIdxLocal: 31,
-      entryPrice: 51.1,
-      stopPrice: 49.85,
-      tp1Price: 53.5,
-      outcomeText: 'This mock lesson shows why the engine waits for a real break of structure instead of trying to catch every weak bounce in a downtrend.',
-      overridesLocal: {
-        26: {open:50.58, low:50.42, high:51.26, close:51.1, volume:122000},
       },
     },
   ];
@@ -1608,11 +1534,6 @@ function buildParams(stratId, combo, ip, p) {
       row('Bollinger Band', '20-period ±2σ', 'Volatility envelope. Band = 2 standard deviations from 20-day mean price') +
       row('Keltner Channel', kc+'× ATR', 'ATR-based channel around EMA20. Squeeze = BB inside KC → volatility contracting, coiling for a move') +
       row('Entry Signal', 'Squeeze release', 'Trade when BB expands outside KC — compression breakout with momentum confirmation');
-  } else if (stratId === 'trendline_breakout') {
-    const sw = p ? (p.swing_period||3) : (combo.match(/sw(\d)/)?+combo.match(/sw(\d)/)[1]:3);
-    entryRows =
-      row('Swing Breakout', sw+'-bar high', 'Entry when close exceeds the highest high of the past '+sw+' bars — price breaking above recent resistance') +
-      row('Trend Filter', 'SMA50', 'Long only when price is above SMA50 — confirms uptrend context, avoids counter-trend trades');
   } else if (stratId === 'reversal') {
     const rsi = ip.rsi_period||14;
     const thr = p ? (p.rsi_threshold||40) : (ip.rsi_threshold||40);
@@ -1801,12 +1722,6 @@ function buildChart(strat, symData, ohlcv, showRsi) {
     addLine(chart,kc.upper,'#c2410c',1.2,true);
     addLine(chart,kc.lower,'#c2410c',1.2,true);
     legend.push({c:'#7c3aed',l:'BB ±2σ'}, {c:'#c2410c',l:'KC ×'+(ip.kc_mult||2)});
-  } else if (strat.id === 'trendline_breakout') {
-    const ep=ip.ema_exit||10;
-    if (ep !== 10) {
-      addLine(chart,calcEMA(ohlcv,ep),'#d97706',1.5);
-      legend.push({c:'#d97706',l:'EMA'+ep});
-    }
   }
 
   const chartTimes = ohlcv.map(b => b.time);
@@ -2004,7 +1919,6 @@ function learningRealCandidates() {
     {id:'ma_cross', regimes:['uptrend','downtrend']},
     {id:'reversal', regimes:['choppy','downtrend']},
     {id:'bb_squeeze', regimes:['choppy','uptrend','downtrend']},
-    {id:'trendline_breakout', regimes:['downtrend']},
   ];
 }
 
@@ -2453,18 +2367,6 @@ function renderLearningChart() {
       legend.push({c:'#d97706',l:'Breakpoint'}, {c:'#f59e0b',l:'Pullback band'});
       if (pullbackGuide.pivot.idx >= visibleStartIdx && pullbackGuide.pivot.idx <= visibleEndIdx) {
         structureMarkers.push({time:state.bars[pullbackGuide.pivot.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Pivot'});
-      }
-    }
-  } else if (state.lesson.id === 'trendline_breakout') {
-    const trendlineGuide = learningTrendlineBreakoutGuide(state, visibleStartIdx, visibleEndIdx);
-    if (trendlineGuide && trendlineGuide.points.length) {
-      addLine(chart, trendlineGuide.points, '#d97706', 3, false);
-      legend.push({c:'#d97706',l:'Breakout trendline'});
-      if (trendlineGuide.anchor.idx >= visibleStartIdx && trendlineGuide.anchor.idx <= visibleEndIdx) {
-        structureMarkers.push({time:state.bars[trendlineGuide.anchor.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Anchor'});
-      }
-      if (trendlineGuide.pivot.idx >= visibleStartIdx && trendlineGuide.pivot.idx <= visibleEndIdx) {
-        structureMarkers.push({time:state.bars[trendlineGuide.pivot.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Pivot'});
       }
     }
   }
