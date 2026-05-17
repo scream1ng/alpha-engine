@@ -189,10 +189,6 @@ tr:hover td{background:var(--bg2)}
 .learn-intro{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
 .learn-intro h2{font-size:22px;font-weight:700}
 .learn-intro p{font-size:13px;color:var(--text2);max-width:720px}
-.learn-section{margin-top:18px}
-.learn-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
-.learn-section-head h3{font-size:16px;font-weight:800;letter-spacing:.2px}
-.learn-section-copy{font-size:12px;color:var(--text2)}
 .learn-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .learn-card{border:1px solid var(--border);border-radius:12px;background:linear-gradient(180deg,#fff 0%,#f8fafc 100%);box-shadow:0 8px 20px rgba(15,23,42,.05);padding:16px;display:flex;flex-direction:column;gap:12px}
 .learn-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -261,6 +257,7 @@ tr:hover td{background:var(--bg2)}
 
 <script>
 const DATA_URL = './chart_data.json';
+const LEARNING_DATA_URL = './learning_data.json';
 const API_BASE = window.ALPHA_API_BASE || (location.protocol === 'file:' ? '' : location.origin);
 const CHART_LIB_URL = 'https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js';
 const MARKET_STORAGE_KEY = 'alpha-engine-active-market';
@@ -303,17 +300,43 @@ async function loadOhlcvForActiveMarket() {
     _ohlcvCache[marketKey] = data.ohlcv;
     return data.ohlcv;
   }
-  if (!data.ohlcv_file) {
-    _ohlcvCache[marketKey] = {};
-    return _ohlcvCache[marketKey];
+
+  const candidates = [];
+  const addCandidate = url => {
+    if (url && !candidates.includes(url)) candidates.push(url);
+  };
+  addCandidate(data.ohlcv_file);
+  addCandidate('./ohlcv_' + marketKey + '_learn.json');
+  addCandidate('./ohlcv_' + marketKey + '.json');
+  addCandidate('./ohlcv_learn.json');
+
+  let lastError = null;
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) {
+        lastError = new Error('HTTP ' + r.status + ' loading ' + url);
+        continue;
+      }
+      const raw = await r.json();
+      const rawMarket = raw && raw.market ? String(raw.market).toUpperCase() : null;
+      if (rawMarket && rawMarket !== marketKey) {
+        lastError = new Error('Market mismatch loading ' + url);
+        continue;
+      }
+      const ohlcv = raw && raw.ohlcv ? raw.ohlcv : raw;
+      if (ohlcv && typeof ohlcv === 'object') {
+        _ohlcvCache[marketKey] = ohlcv;
+        data.ohlcv = ohlcv;
+        return ohlcv;
+      }
+    } catch (err) {
+      lastError = err;
+    }
   }
 
-  const r = await fetch(data.ohlcv_file);
-  if (!r.ok) throw new Error('HTTP ' + r.status + ' loading ' + data.ohlcv_file);
-  const raw = await r.json();
-  const ohlcv = raw && raw.ohlcv ? raw.ohlcv : raw;
-  _ohlcvCache[marketKey] = (ohlcv && typeof ohlcv === 'object') ? ohlcv : {};
-  data.ohlcv = _ohlcvCache[marketKey];
+  if (lastError) throw lastError;
+  _ohlcvCache[marketKey] = {};
   return _ohlcvCache[marketKey];
 }
 
@@ -395,12 +418,48 @@ async function loadData() {
   const r = await fetch(DATA_URL);
   if (!r.ok) throw new Error('HTTP ' + r.status);
   D = normalizePayload(await r.json());
+  await loadFixedLearningData();
   const storedMarket = (() => {
     try { return localStorage.getItem(MARKET_STORAGE_KEY); } catch (_) { return null; }
   })();
   ACTIVE_MARKET = storedMarket && D.markets && D.markets[storedMarket] ? storedMarket : activeMarketKey();
   updateNavMeta();
   route();
+}
+
+async function loadFixedLearningData() {
+  try {
+    const r = await fetch(LEARNING_DATA_URL, {cache:'no-store'});
+    if (!r.ok) return;
+    const raw = await r.json();
+    const lessons = normalizeFixedLearningLessons(raw);
+    if (lessons.length) _learningLessonCatalog = lessons;
+  } catch (_) {}
+}
+
+function normalizeFixedLearningLessons(raw) {
+  const lessons = raw && Array.isArray(raw.lessons) ? raw.lessons : [];
+  return lessons.map(lesson => {
+    const panels = learningPanelsForStrategy(lesson.id);
+    const indicatorParams = lesson.indicator_params || {};
+    const params = lesson.params || {};
+    return {
+      ...lesson,
+      regime: lesson.regime || 'uptrend',
+      copy: learningCopyForStrategy(lesson.id),
+      strategy: {
+        params,
+        indicator_params: indicatorParams,
+      },
+      indicators: learningIndicatorSpecs(lesson.id, {indicator_params: indicatorParams}),
+      showVolumePanel: lesson.showVolumePanel == null ? panels.showVolume : lesson.showVolumePanel,
+      showRsiPanel: lesson.showRsiPanel == null ? panels.showRsi : lesson.showRsiPanel,
+    };
+  }).filter(lesson =>
+    lesson.id && lesson.regime && Array.isArray(lesson.bars) &&
+    lesson.bars.length && Number.isFinite(lesson.entryIdx) && Number.isFinite(lesson.exitIdx) &&
+    lesson.position
+  );
 }
 
 function route() {
@@ -740,59 +799,6 @@ function buildPerfTable(rm, optLookup, allIds, cur) {
 }
 
 /* ── LEARNING ────────────────────────────────── */
-function learningCopyForStrategy(id) {
-  const copy = {
-    pivot_breakout: {
-      title: 'Pivot Breakout',
-      summary: 'Breakout through a recent pivot high once price proves it can clear resistance.',
-      setup: 'Price coils beneath a recent high while the broader structure still supports an upside break.',
-      trigger: 'The trade activates once price trades through the pivot breakout level.',
-      management: 'Risk sits below the breakout structure, and ATR-based targets define the first profit zone.',
-    },
-    trendline_breakout: {
-      title: 'Trendline Breakout',
-      summary: 'Break above a recent swing structure with trend confirmation already in place.',
-      setup: 'The pattern forms when price pushes through a recent swing ceiling while remaining structurally healthy.',
-      trigger: 'Entry happens only after the breakout candle actually clears the trigger level.',
-      management: 'The initial stop sits beneath the breakout structure; the runner is managed by exit rules.',
-    },
-    pullback_buy: {
-      title: 'Pullback Buy',
-      summary: 'Buy a pullback that holds trend support rather than chasing an extended move.',
-      setup: 'Price retraces toward support but does not break the larger trend context.',
-      trigger: 'Entry waits for the pullback to prove demand is stepping back in.',
-      management: 'The stop protects against a failed retracement; targets pay for the rebound.',
-    },
-    reversal: {
-      title: 'Reversal',
-      summary: 'Fade an oversold stretch once price has room to mean-revert.',
-      setup: 'Momentum gets stretched enough to create a bounce setup without fully breaking structure.',
-      trigger: 'The entry bar confirms the reversal attempt after the oversold condition is already present.',
-      management: 'ATR targets monetize the snapback while exits defend against a failed bounce.',
-    },
-    bb_squeeze: {
-      title: 'BB Squeeze',
-      summary: 'Trade expansion after volatility compression inside the squeeze.',
-      setup: 'Bollinger Bands compress inside the Keltner Channel, signaling stored energy.',
-      trigger: 'The lesson shows the candle that releases the squeeze and trades through the setup.',
-      management: 'Once expansion starts, ATR targets and exit logic determine whether to scale or trail.',
-    },
-    ma_cross: {
-      title: 'MA Cross',
-      summary: 'Momentum takes control when the fast average regains leadership over the slower trend.',
-      setup: 'The move begins with averages aligning in favor of the trade direction.',
-      trigger: 'Entry waits for price to confirm the moving-average shift rather than anticipating it.',
-      management: 'Risk is defined immediately and the EMA10 helps show where the move stops behaving well.',
-    },
-  };
-  return copy[id] || {
-    title: sLabel(id),
-    summary: 'Representative lesson built from a real exported trade.',
-    setup: 'The setup explains what had to be true before the trade was allowed.',
-    trigger: 'The trigger step shows the candle that actually caused the entry.',
-    management: 'The management step shows the risk and reward structure used by the system.',
-  };
-}
 
 function findBarIndexByDate(bars, targetDate) {
   if (!bars || !bars.length) return -1;
@@ -846,49 +852,7 @@ function extractLearningPositions(symbolRows) {
     });
 }
 
-function learningRegimeMeta(regime) {
-  const meta = {
-    uptrend: {
-      title: 'Uptrend',
-      copy: 'Strategies here are meant to participate when trend structure already supports continuation.',
-    },
-    choppy: {
-      title: 'Choppy',
-      copy: 'These lessons focus on mean reversion or controlled breakout logic when trend quality is weaker.',
-    },
-    downtrend: {
-      title: 'Downtrend',
-      copy: 'These setups are the current research focus, showing how the engine exploits compressed or defensive conditions.',
-    },
-  };
-  return meta[regime] || {title: sLabel(regime), copy: ''};
-}
 
-function learningIndicatorSpecs(strategyId, lesson) {
-  const p = lesson.params || {};
-  const specs = [
-    {name:'EMA10', color:'#1a7f37', desc:'Exit guide. If price loses the short-term trend, the move is no longer behaving as expected.'},
-    {name:'SMA50', color:'#cf222e', desc:'Intermediate structure line. Helps frame whether price is operating in healthy trend space.'},
-    {name:'SMA200', color:'#111111', desc:'Long-term structure line. Keeps the lesson grounded in the broader market context.'},
-  ];
-  if (strategyId === 'reversal') specs.push({name:'RSI(' + ((lesson.indicator_params || {}).rsi_period || 14) + ')', color:'#7c3aed', desc:'Momentum stretch gauge. The setup wants price oversold enough to justify a bounce.'});
-  if (strategyId === 'bb_squeeze') {
-    specs.push({name:'Bollinger Bands', color:'#7c3aed', desc:'Show volatility compression and the expansion that follows the squeeze.'});
-    specs.push({name:'Keltner Channel', color:'#c2410c', desc:'Defines the squeeze condition by comparing ATR-based volatility against the Bollinger envelope.'});
-  }
-  if (strategyId === 'ma_cross') {
-    const ip = lesson.indicator_params || {};
-    specs.push({name:'EMA' + (ip.ma_fast || 10), color:'#d97706', desc:'Fast momentum line. The lesson shows when the fast line regains control.'});
-    if ((ip.ma_slow || 20) !== 50 && (ip.ma_slow || 20) !== 200) specs.push({name:'SMA' + (ip.ma_slow || 20), color:'#0969da', desc:'Slow trend filter. Confirms whether the fast line is aligned with the larger move.'});
-  }
-  if (strategyId === 'pivot_breakout' || strategyId === 'trendline_breakout') {
-    specs.push({name:'Trigger Line', color:'#0969da', desc:'The price level that must actually trade for the entry to become live.'});
-  }
-  if ((p.rvol_min || 0) > 0 || strategyId === 'bb_squeeze' || strategyId === 'pivot_breakout') {
-    specs.push({name:'Volume / RVOL', color:'#9a6700', desc:'Used as participation confirmation. Breakouts without volume are lower quality.'});
-  }
-  return specs;
-}
 
 function learningChecklist(strategyId, lesson) {
   const lists = {
@@ -930,310 +894,20 @@ function learningChecklist(strategyId, lesson) {
   ];
 }
 
-function collectLearningLessons() {
-  const data = currentData();
-  const strats = ((data && data.strategies) || []).filter(isVisibleStrategy);
-  return strats.map(strat => {
-    const positions = extractLearningPositions(strat.symbols || []);
-    const position = positions[0];
-    if (!position) return null;
-    const copy = learningCopyForStrategy(strat.id);
-    return {
-      id: strat.id,
-      regime: strat.regime,
-      symbol: position.symbol,
-      combo: strat.combo,
-      calmar: strat.calmar,
-      ret_pct: strat.ret_pct,
-      params: strat.params || {},
-      indicator_params: strat.indicator_params || {},
-      copy,
-      indicators: learningIndicatorSpecs(strat.id, {params: strat.params || {}, indicator_params: strat.indicator_params || {}}),
-      checklist: learningChecklist(strat.id, {params: strat.params || {}, indicator_params: strat.indicator_params || {}}),
-      position,
-    };
-  }).filter(Boolean).sort((a, b) => {
-    const aKey = a.copy.title + '|' + a.regime;
-    const bKey = b.copy.title + '|' + b.regime;
-    return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
-  });
-}
 
-function renderLearningHome() {
-  const lessons = collectLearningLessons();
-  if (!lessons.length) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No lessons available. Run chart-export first.</div>';
-    return;
-  }
 
-  const regimes = ['uptrend', 'choppy', 'downtrend'];
-  const sections = regimes.map(regime => {
-    const items = lessons.filter(lesson => lesson.regime === regime);
-    if (!items.length) return '';
-    const meta = learningRegimeMeta(regime);
-    const cards = items.map(lesson =>
-      '<div class="learn-card">' +
-        '<div class="learn-card-top">' +
-          '<h3>' + lesson.copy.title + '</h3>' +
-          '<span class="learn-chip ' + regime + '">' + meta.title + '</span>' +
-        '</div>' +
-        '<div class="learn-copy">' + lesson.copy.summary + '</div>' +
-        '<div class="learn-meta">' +
-          '<span><strong>Example</strong> ' + lesson.symbol + '</span>' +
-          '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,3).join(', ') + '</span>' +
-        '</div>' +
-        '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
-      '</div>'
-    ).join('');
-    return '<section class="learn-section">' +
-      '<div class="learn-section-head"><div><h3>' + meta.title + '</h3><div class="learn-section-copy">' + meta.copy + '</div></div></div>' +
-      '<div class="learn-grid">' + cards + '</div>' +
-    '</section>';
-  }).join('');
 
-  document.getElementById('page').innerHTML =
-    '<div class="learn-home">' +
-      '<div class="learn-intro">' +
-        '<div><h2>Learning</h2><p>Start with the market regime, then drill into the strategy that belongs there. Each lesson uses a real exported trade and focuses on the indicators that actually matter for that setup.</p></div>' +
-      '</div>' +
-      sections +
-    '</div>';
-}
 
-function learningStepMeta(state) {
-  const copy = state.lesson.copy;
-  const triggerIdx = state.entryIdx;
-  const setupEnd = Math.max(Math.min(triggerIdx - 3, state.bars.length - 1), Math.min(16, state.bars.length - 1));
-  return [
-    {
-      title: '1. Setup',
-      text: copy.setup,
-      focusEnd: setupEnd,
-      showTrigger: false,
-      showLevels: false,
-      showOutcome: false,
-    },
-    {
-      title: '2. Trigger',
-      text: copy.trigger,
-      focusEnd: triggerIdx,
-      showTrigger: true,
-      showLevels: false,
-      showOutcome: false,
-    },
-    {
-      title: '3. Risk & Target',
-      text: copy.management,
-      focusEnd: Math.min(state.bars.length - 1, Math.max(triggerIdx + 6, triggerIdx)),
-      showTrigger: true,
-      showLevels: true,
-      showOutcome: false,
-    },
-    {
-      title: '4. Outcome',
-      text: 'The chart now extends through the recorded exit so you can see whether the setup paid quickly or needed time to work.',
-      focusEnd: Math.min(state.bars.length - 1, Math.max(state.exitIdx + 4, triggerIdx + 8)),
-      showTrigger: true,
-      showLevels: true,
-      showOutcome: true,
-    },
-  ];
-}
 
-async function renderLearningLesson(stratId, regime) {
-  const lesson = collectLearningLessons().find(x => x.id === stratId && x.regime === regime);
-  if (!lesson) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Lesson not found.</div>';
-    return;
-  }
-  const position = lesson.position;
 
-  document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading lesson...</div>';
 
-  let ohlcvMap;
-  try {
-    ohlcvMap = await loadOhlcvForActiveMarket();
-  } catch (err) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
-    return;
-  }
-  const bars = ohlcvMap[position.symbol];
-  if (!bars || !bars.length) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for lesson symbol ' + position.symbol + '.</div>';
-    return;
-  }
-  try {
-    await ensureChartLibrary();
-  } catch (err) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson chart library: ' + err.message + '</div>';
-    return;
-  }
 
-  const entryIdxFull = findBarIndexByDate(bars, position.entry_date);
-  const exitIdxFull = findBarIndexByDate(bars, position.exit_date);
-  if (entryIdxFull < 0 || exitIdxFull < 0) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Could not map the lesson trade onto chart history.</div>';
-    return;
-  }
-
-  const startIdx = Math.max(0, entryIdxFull - 35);
-  const endIdx = Math.min(bars.length - 1, Math.max(exitIdxFull + 12, entryIdxFull + 16));
-  const lessonBars = bars.slice(startIdx, endIdx + 1);
-
-  _learningState = {
-    lesson: {...lesson, symbol: position.symbol},
-    bars: lessonBars,
-    entryIdx: entryIdxFull - startIdx,
-    exitIdx: exitIdxFull - startIdx,
-    position,
-    step: 0,
-    revealIdx: null,
-    autoPlaying: false,
-  };
-
-  document.getElementById('page').innerHTML =
-    '<div class="learn-player">' +
-      '<div class="pg-hdr">' +
-        '<div class="pg-hdr-inner">' +
-          '<a class="back-btn" onclick="nav(\'learning\')">← Learning</a>' +
-          '<div class="pg-hdr-center"><span class="pg-title">' + lesson.copy.title + '</span>' + pill(lesson.regime) + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="learn-layout">' +
-        '<div class="learn-chart-shell">' +
-          '<div class="learn-chart-head">' +
-            '<div class="learn-meta"><span><strong>Example</strong> ' + lesson.symbol + '</span><span><strong>Combo</strong> ' + (lesson.combo || 'base') + '</span><span><strong>Calmar</strong> ' + fmt(lesson.calmar, 2) + '</span></div>' +
-          '</div>' +
-          '<div class="learn-chart-stage"><div id="learn-chart"></div></div>' +
-          '<div id="learn-chart-legend"></div>' +
-          '<div class="learn-playbar">' +
-            '<div class="learn-play-controls">' +
-              '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) - 1, {animate:false})">Prev</button>' +
-              '<button class="learn-btn" id="learn-play-btn" onclick="toggleLearningAutoplay()">Play</button>' +
-              '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) + 1, {animate:true})">Next</button>' +
-              '<button class="learn-btn alt" onclick="replayLearningTrigger()">Replay Trigger</button>' +
-            '</div>' +
-            '<div class="learn-play-steps"><div class="learn-step-pills" id="learn-step-pills"></div></div>' +
-          '</div>' +
-        '</div>' +
-        '<aside class="learn-side" id="learn-side"></aside>' +
-      '</div>' +
-    '</div>';
-
-  setLearningStep(0, {animate:false});
-}
-
-function renderLearningSidebar() {
-  const state = _learningState;
-  if (!state) return;
-  const steps = learningStepMeta(state);
-  const step = steps[state.step] || steps[0];
-  const playBtn = document.getElementById('learn-play-btn');
-  if (playBtn) playBtn.textContent = state.autoPlaying ? 'Pause' : 'Play';
-
-  const pills = document.getElementById('learn-step-pills');
-  if (pills) {
-    pills.innerHTML = steps.map((s, idx) =>
-      '<button class="learn-step-pill ' + (idx === state.step ? 'active' : '') + '" onclick="setLearningStep(' + idx + ', {animate:' + ((idx === 1 || idx === 2) ? 'true' : 'false') + '})">' + s.title + '</button>'
-    ).join('');
-  }
-
-  const levels = [
-    {cls:'entry', lbl:'Entry', val: state.position.entry_price},
-    {cls:'stop', lbl:'Stop', val: state.position.stop_price},
-    {cls:'tp1', lbl:'TP1', val: state.position.tp1_price},
-    state.position.tp2_price != null ? {cls:'tp2', lbl:'TP2', val: state.position.tp2_price} : null,
-  ].filter(Boolean).map(level =>
-    '<div class="learn-level ' + level.cls + '"><div class="lbl">' + level.lbl + '</div><div class="val">' + fmt(level.val, 2) + '</div></div>'
-  ).join('');
-  const indicators = (state.lesson.indicators || []).map(ind =>
-    '<div class="learn-indicator">' +
-      '<div class="learn-indicator-top"><span class="learn-indicator-line" style="background:' + ind.color + '"></span><span class="learn-indicator-name">' + ind.name + '</span></div>' +
-      '<div class="learn-indicator-copy">' + ind.desc + '</div>' +
-    '</div>'
-  ).join('');
-  const checks = (state.lesson.checklist || []).map(item =>
-    '<div class="learn-check"><span class="learn-check-dot"></span><div class="learn-check-copy">' + item + '</div></div>'
-  ).join('');
-  const lastExit = state.position.exits[state.position.exits.length - 1];
-
-  const side = document.getElementById('learn-side');
-  if (!side) return;
-  side.innerHTML =
-    '<h3>' + state.lesson.copy.title + '</h3>' +
-    '<div class="sub">' + learningRegimeMeta(state.lesson.regime).title + ' · ' + state.lesson.symbol + ' · ' + (state.lesson.combo || 'base') + '</div>' +
-    '<div class="learn-panel"><h4>Step Explanation</h4><p>' + step.text + '</p></div>' +
-    '<div class="learn-panel"><h4>Setup Checklist</h4><div class="learn-checks">' + checks + '</div></div>' +
-    '<div class="learn-panel"><h4>Indicators Used</h4><div class="learn-indicators">' + indicators + '</div></div>' +
-    '<div class="learn-panel"><h4>Trade Levels</h4><div class="learn-levels">' + levels + '</div></div>' +
-    '<div class="learn-panel"><h4>Trade Read</h4><div class="learn-list">' +
-      '<div class="learn-list-item">' + state.lesson.copy.summary + '</div>' +
-      '<div class="learn-list-item">Entry date: ' + state.position.entry_date + '</div>' +
-      '<div class="learn-list-item">Exit date: ' + state.position.exit_date + '</div>' +
-      '<div class="learn-list-item">Final exit: ' + ((lastExit && lastExit.exit_reason) || 'exit') + '</div>' +
-      '<div class="learn-list-item">Position PnL: ' + pct(state.position.pnl / CAPITAL * 100, 2) + ' of starting capital</div>' +
-    '</div></div>';
-}
-
-function setLearningStep(nextStep, opts={}) {
-  const state = _learningState;
-  if (!state) return;
-  const steps = learningStepMeta(state);
-  const maxStep = steps.length - 1;
-  state.step = Math.max(0, Math.min(maxStep, nextStep));
-  state.revealIdx = null;
-  renderLearningSidebar();
-  if (state.step === 1 && opts.animate !== false) animateLearningTrigger();
-  else renderLearningChart();
-}
-
-function animateLearningTrigger() {
-  const state = _learningState;
-  if (!state) return;
-  clearLearningTimers();
-  const startIdx = Math.max(0, state.entryIdx - 4);
-  const finalIdx = state.entryIdx;
-  const tick = idx => {
-    if (!_learningState || _learningState !== state) return;
-    state.revealIdx = idx;
-    renderLearningChart();
-    if (idx < finalIdx) _learningTimer = setTimeout(() => tick(idx + 1), 320);
-  };
-  tick(startIdx);
-}
-
-function replayLearningTrigger() {
-  if (!_learningState) return;
-  setLearningStep(1, {animate:true});
-}
-
-function toggleLearningAutoplay() {
-  const state = _learningState;
-  if (!state) return;
-  state.autoPlaying = !state.autoPlaying;
-  renderLearningSidebar();
-  clearLearningTimers();
-  if (!state.autoPlaying) return;
-  const advance = () => {
-    if (!_learningState || !_learningState.autoPlaying) return;
-    if (_learningState.step >= learningStepMeta(_learningState).length - 1) {
-      _learningState.autoPlaying = false;
-      renderLearningSidebar();
-      return;
-    }
-    const next = _learningState.step + 1;
-    setLearningStep(next, {animate: next === 1});
-    const delay = next === 1 ? 2600 : 2200;
-    _learningAutoTimer = setTimeout(advance, delay);
-  };
-  advance();
-}
 
 function learningPivotBreakoutGuide(state, visibleStartIdx, visibleEndIdx) {
   const p = (state.lesson.strategy && state.lesson.strategy.params) || {};
   const lookback = Math.max(1, parseInt(p.lookback || 10, 10));
-  const from = Math.max(0, state.entryIdx - lookback);
-  const to = Math.max(from, state.entryIdx - 1);
+  const from = Math.max(0, state.entryIdx - lookback - 1);
+  const to = Math.max(from, state.entryIdx - 2);
   const prior = state.bars.slice(from, to + 1);
   if (!prior.length) return null;
   const level = Math.max(...prior.map(bar => bar.close));
@@ -1301,93 +975,7 @@ function learningPullbackBuyGuide(state, visibleStartIdx, visibleEndIdx) {
   return {line, upper, lower, pivot};
 }
 
-function renderLearningChart() {
-  const state = _learningState;
-  if (!state) return;
-  _charts.forEach(c => { try { c.remove(); } catch(_) {} });
-  _charts = [];
 
-  const chartEl = document.getElementById('learn-chart');
-  if (!chartEl) return;
-
-  const steps = learningStepMeta(state);
-  const step = steps[state.step] || steps[0];
-  const endIdx = (state.step === 1 || state.step === 2) && state.revealIdx != null ? state.revealIdx : step.focusEnd;
-  const visibleBars = state.bars.slice(0, Math.max(1, endIdx + 1));
-  const legend = [];
-
-  const chart = LightweightCharts.createChart(chartEl, {
-    layout:   { background:{type:'Solid',color:'#ffffff'}, textColor:'#656d76' },
-    grid:     { vertLines:{color:'#eaeef2'}, horzLines:{color:'#eaeef2'} },
-    crosshair:{ mode: 1 },
-    rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.08, bottom:0.15} },
-    timeScale: { borderColor:'#d0d7de', timeVisible:true },
-    autoSize: true,
-  });
-  _charts.push(chart);
-
-  const candle = chart.addCandlestickSeries({
-    upColor:'#1a7f37', downColor:'#cf222e',
-    borderUpColor:'#1a7f37', borderDownColor:'#cf222e',
-    wickUpColor:'#1a7f37', wickDownColor:'#cf222e',
-  });
-  candle.setData(visibleBars);
-
-  addLine(chart, calcEMA(visibleBars,10), '#1a7f37', 1.6);
-  addLine(chart, calcSMA(visibleBars,50), '#cf222e', 1.6);
-  addLine(chart, calcSMA(visibleBars,200), '#111111', 1.6);
-  legend.push({c:'#1a7f37',l:'EMA10'}, {c:'#cf222e',l:'SMA50'}, {c:'#111111',l:'SMA200'});
-
-  const ip = state.lesson.indicator_params || {};
-  if (state.lesson.id === 'ma_cross') {
-    const f = ip.ma_fast || 10, s = ip.ma_slow || 20;
-    if (f !== 10) { addLine(chart, calcEMA(visibleBars, f), '#d97706', 1.4); legend.push({c:'#d97706',l:'EMA'+f}); }
-    if (s !== 50 && s !== 200) { addLine(chart, calcSMA(visibleBars, s), '#0969da', 1.4); legend.push({c:'#0969da',l:'SMA'+s}); }
-  } else if (state.lesson.id === 'bb_squeeze') {
-    const bb = calcBB(visibleBars, ip.bb_period || 20, ip.bb_mult || 2.0);
-    const kc = calcKC(visibleBars, ip.kc_mult || 2.0);
-    addLine(chart, bb.upper, '#7c3aed', 1.1, true);
-    addLine(chart, bb.lower, '#7c3aed', 1.1, true);
-    addLine(chart, kc.upper, '#c2410c', 1.1, true);
-    addLine(chart, kc.lower, '#c2410c', 1.1, true);
-    legend.push({c:'#7c3aed',l:'BB'}, {c:'#c2410c',l:'KC'});
-  }
-
-  const markers = [];
-  const entryBar = state.bars[state.entryIdx];
-  const exitBar = state.bars[Math.min(state.exitIdx, visibleBars.length - 1)];
-  if (step.showTrigger && entryBar && state.entryIdx < visibleBars.length) {
-    addLine(chart, constantLineData(visibleBars, state.position.entry_price), '#0969da', 1.3, true);
-    legend.push({c:'#0969da',l:'Trigger'});
-    markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'circle', text:'Trigger'});
-  }
-  if (step.showLevels) {
-    addLine(chart, constantLineData(visibleBars, state.position.stop_price), '#cf222e', 1.1, true);
-    addLine(chart, constantLineData(visibleBars, state.position.tp1_price), '#9a6700', 1.1, true);
-    legend.push({c:'#cf222e',l:'Stop'}, {c:'#9a6700',l:'TP1'});
-    if (state.position.tp2_price != null) {
-      addLine(chart, constantLineData(visibleBars, state.position.tp2_price), '#7c3aed', 1.1, true);
-      legend.push({c:'#7c3aed',l:'TP2'});
-    }
-    if (entryBar && state.entryIdx < visibleBars.length) {
-      markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'arrowUp', text:'Entry'});
-    }
-  }
-  if (step.showOutcome && exitBar && state.exitIdx < visibleBars.length) {
-    const lastExit = state.position.exits[state.position.exits.length - 1];
-    markers.push({time:exitBar.time, position:'aboveBar', color:'#111111', shape:'arrowDown', text:exitLbl((lastExit && lastExit.exit_reason) || 'exit')});
-  }
-
-  candle.setMarkers(markers.sort((a,b) => a.time < b.time ? -1 : 1));
-  chart.timeScale().fitContent();
-
-  const legEl = document.getElementById('learn-chart-legend');
-  if (legEl) legEl.innerHTML = legend.map(i => '<div class="leg"><div class="leg-line" style="background:' + i.c + '"></div>' + i.l + '</div>').join('');
-}
-
-function constantLineData(bars, price) {
-  return (bars || []).map(b => ({time:b.time, value:price}));
-}
 
 // Learning v3: curated real-window lessons, anonymized for teaching.
 function learningLessonCandidates() {
@@ -1401,27 +989,6 @@ function learningLessonCandidates() {
   ];
 }
 
-function collectLearningLessons() {
-  const data = currentData();
-  const strats = ((data && data.strategies) || []).filter(isVisibleStrategy);
-  return learningLessonCandidates().map(spec => {
-    const strat = spec.regimes.map(reg => strats.find(s => s.id === spec.id && s.regime === reg)).find(Boolean);
-    if (!strat) return null;
-    const positions = extractLearningPositions(strat.symbols || []);
-    if (!positions.length) return null;
-    const copy = learningCopyForStrategy(strat.id);
-    return {
-      id: strat.id,
-      regime: strat.regime,
-      strategy: strat,
-      copy,
-      indicators: learningIndicatorSpecs(strat.id, {indicator_params: strat.indicator_params || {}}),
-      showVolumePanel: learningPanelsForStrategy(strat.id).showVolume,
-      showRsiPanel: learningPanelsForStrategy(strat.id).showRsi,
-      focus: copy.summary,
-    };
-  }).filter(Boolean);
-}
 
 function learningRepresentativeScore(position) {
   const barsHeld = position.bars_held || 0;
@@ -1494,438 +1061,14 @@ function buildAnonymizedLearningWindow(strat, position, ohlcv) {
   };
 }
 
-function renderLearningHome() {
-  const lessons = collectLearningLessons();
-  if (!lessons.length) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No learning lessons available for the active export. Run chart-export first.</div>';
-    return;
-  }
 
-  const regimes = ['uptrend', 'choppy', 'downtrend'];
-  const sections = regimes.map(regime => {
-    const items = lessons.filter(lesson => lesson.regime === regime);
-    if (!items.length) return '';
-    const meta = learningRegimeMeta(regime);
-    const cards = items.map(lesson =>
-      '<div class="learn-card">' +
-        '<div class="learn-card-top">' +
-          '<h3>' + lesson.copy.title + '</h3>' +
-          '<span class="learn-chip ' + regime + '">' + meta.title + '</span>' +
-        '</div>' +
-        '<div class="learn-copy">' + lesson.copy.summary + '</div>' +
-        '<div class="learn-meta">' +
-          '<span><strong>Source</strong> Anonymized real window</span>' +
-          '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span>' +
-        '</div>' +
-        '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
-      '</div>'
-    ).join('');
-    return '<section class="learn-section">' +
-      '<div class="learn-section-head"><div><h3>' + meta.title + '</h3><div class="learn-section-copy">' + meta.copy + '</div></div></div>' +
-      '<div class="learn-grid">' + cards + '</div>' +
-    '</section>';
-  }).join('');
 
-  document.getElementById('page').innerHTML =
-    '<div class="learn-home">' +
-      '<div class="learn-intro">' +
-        '<div><h2>Learning</h2><p>Each lesson now uses an anonymized real market window from the active export. The symbol and scale are hidden, but the candle structure, pullbacks, failed pushes, and volume behaviour stay real.</p></div>' +
-      '</div>' +
-      sections +
-    '</div>';
-}
 
-function learningStepMeta(state) {
-  const copy = state.lesson.copy;
-  const triggerIdx = state.entryIdx;
-  const setupEnd = Math.max(state.baseIdx + 8, triggerIdx - 3);
-  return [
-    {
-      title: '1. Setup',
-      text: copy.setup,
-      focusEnd: setupEnd,
-      showTrigger: false,
-      showLevels: false,
-      showOutcome: false,
-    },
-    {
-      title: '2. Trigger',
-      text: copy.trigger,
-      focusEnd: triggerIdx,
-      showTrigger: true,
-      showLevels: false,
-      showOutcome: false,
-    },
-    {
-      title: '3. Risk & Target',
-      text: copy.management,
-      focusEnd: Math.min(state.bars.length - 1, Math.max(triggerIdx + 6, triggerIdx)),
-      showTrigger: true,
-      showLevels: true,
-      showOutcome: false,
-    },
-    {
-      title: '4. Outcome',
-      text: state.outcomeText,
-      focusEnd: Math.min(state.bars.length - 1, Math.max(state.exitIdx + 4, triggerIdx + 8)),
-      showTrigger: true,
-      showLevels: true,
-      showOutcome: true,
-    },
-  ];
-}
 
-async function renderLearningLesson(stratId, regime) {
-  const lesson = collectLearningLessons().find(x => x.id === stratId && x.regime === regime);
-  if (!lesson) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Lesson not found.</div>';
-    return;
-  }
-  document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading lesson...</div>';
 
-  let ohlcvMap;
-  try {
-    ohlcvMap = await loadOhlcvForActiveMarket();
-    await ensureChartLibrary();
-  } catch (err) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
-    return;
-  }
 
-  const position = chooseRepresentativeLearningPosition(lesson.strategy);
-  if (!position) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No representative trade found for this lesson.</div>';
-    return;
-  }
-  const ohlcv = ohlcvMap[position.symbol];
-  if (!ohlcv || !ohlcv.length) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for the lesson source symbol.</div>';
-    return;
-  }
 
-  const windowData = buildAnonymizedLearningWindow(lesson.strategy, position, ohlcv);
-  if (!windowData) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Could not build a lesson window from the exported trade history.</div>';
-    return;
-  }
 
-  _learningState = {
-    lesson,
-    bars: windowData.bars,
-    baseIdx: windowData.baseIdx,
-    entryIdx: windowData.entryIdx,
-    exitIdx: windowData.exitIdx,
-    position: windowData.position,
-    outcomeText: windowData.outcomeText,
-    sourceLabel: windowData.summary,
-    step: 0,
-    revealIdx: null,
-    autoPlaying: false,
-  };
-
-  document.getElementById('page').innerHTML =
-    '<div class="learn-player">' +
-      '<div class="pg-hdr">' +
-        '<div class="pg-hdr-inner">' +
-          '<a class="back-btn" onclick="nav(\'learning\')">← Learning</a>' +
-          '<div class="pg-hdr-center"><span class="pg-title">' + lesson.copy.title + '</span>' + pill(lesson.regime) + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="learn-layout">' +
-        '<div class="learn-chart-shell">' +
-          '<div class="learn-chart-head">' +
-            '<div class="learn-meta"><span><strong>Source</strong> ' + windowData.summary + '</span><span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span></div>' +
-          '</div>' +
-          '<div class="learn-step-copy" id="learn-step-copy"></div>' +
-          '<div class="learn-chart-stage"><div id="learn-chart"></div><div id="learn-chart-volume"></div><div id="learn-chart-rsi"></div></div>' +
-          '<div id="learn-chart-legend"></div>' +
-          '<div class="learn-playbar">' +
-            '<div class="learn-playbar-inner">' +
-              '<div class="learn-play-controls">' +
-                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) - 1, {animate:false})">Prev</button>' +
-                '<button class="learn-btn" id="learn-play-btn" onclick="toggleLearningAutoplay()">Play</button>' +
-                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) + 1, {animate:true})">Next</button>' +
-                '<button class="learn-btn alt" onclick="replayLearningTrigger()">Replay Trigger</button>' +
-              '</div>' +
-              '<div class="learn-play-steps"><div class="learn-step-pills" id="learn-step-pills"></div></div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-
-  setLearningStep(0, {animate:false});
-}
-
-function renderLearningChrome() {
-  const state = _learningState;
-  if (!state) return;
-  const steps = learningStepMeta(state);
-  const step = steps[state.step] || steps[0];
-  const playBtn = document.getElementById('learn-play-btn');
-  if (playBtn) playBtn.textContent = state.autoPlaying ? 'Pause' : 'Play';
-
-  const pills = document.getElementById('learn-step-pills');
-  if (pills) {
-    pills.innerHTML = steps.map((s, idx) =>
-      '<button class="learn-step-pill ' + (idx === state.step ? 'active' : '') + '" onclick="setLearningStep(' + idx + ', {animate:' + ((idx === 1 || idx === 2) ? 'true' : 'false') + '})">' + s.title + '</button>'
-    ).join('');
-  }
-
-  const copyEl = document.getElementById('learn-step-copy');
-  if (!copyEl) return;
-  copyEl.innerHTML =
-    '<div class="kicker">' + learningRegimeMeta(state.lesson.regime).title + ' lesson</div>' +
-    '<div class="title">' + step.title + '</div>' +
-    '<div class="text">' + step.text + '</div>';
-}
-
-function setLearningStep(nextStep, opts={}) {
-  const state = _learningState;
-  if (!state) return;
-  const steps = learningStepMeta(state);
-  const maxStep = steps.length - 1;
-  state.step = Math.max(0, Math.min(maxStep, nextStep));
-  state.revealIdx = null;
-  renderLearningChrome();
-  if (state.step === 1 && opts.animate !== false) animateLearningTrigger();
-  else renderLearningChart();
-}
-
-function animateLearningTrigger() {
-  const state = _learningState;
-  if (!state) return;
-  clearLearningTimers();
-  const startIdx = Math.max(state.baseIdx, state.entryIdx - 4);
-  const finalIdx = state.entryIdx;
-  const tick = idx => {
-    if (!_learningState || _learningState !== state) return;
-    state.revealIdx = idx;
-    renderLearningChart();
-    if (idx < finalIdx) _learningTimer = setTimeout(() => tick(idx + 1), 320);
-  };
-  tick(startIdx);
-}
-
-function replayLearningTrigger() {
-  if (!_learningState) return;
-  setLearningStep(1, {animate:true});
-}
-
-function toggleLearningAutoplay() {
-  const state = _learningState;
-  if (!state) return;
-  state.autoPlaying = !state.autoPlaying;
-  renderLearningChrome();
-  clearLearningTimers();
-  if (!state.autoPlaying) return;
-  const advance = () => {
-    if (!_learningState || !_learningState.autoPlaying) return;
-    if (_learningState.step >= learningStepMeta(_learningState).length - 1) {
-      _learningState.autoPlaying = false;
-      renderLearningChrome();
-      return;
-    }
-    const next = _learningState.step + 1;
-    setLearningStep(next, {animate: next === 1});
-    const delay = next === 1 ? 2600 : 2200;
-    _learningAutoTimer = setTimeout(advance, delay);
-  };
-  advance();
-}
-
-function renderLearningChart() {
-  const state = _learningState;
-  if (!state) return;
-  _charts.forEach(c => { try { c.remove(); } catch(_) {} });
-  _charts = [];
-
-  const chartEl = document.getElementById('learn-chart');
-  const volEl = document.getElementById('learn-chart-volume');
-  const rsiEl = document.getElementById('learn-chart-rsi');
-  if (!chartEl) return;
-
-  const steps = learningStepMeta(state);
-  const step = steps[state.step] || steps[0];
-  const endIdx = (state.step === 1 || state.step === 2) && state.revealIdx != null ? state.revealIdx : step.focusEnd;
-  const startIdx = state.baseIdx || 0;
-  const isAnimatedReplay = state.step === 1 || state.step === 2;
-  const windowBars = step.showOutcome ? 64 : 52;
-  const rightPad = isAnimatedReplay ? 0 : (step.showOutcome ? 10 : 8);
-  const minStartIdx = isAnimatedReplay ? 0 : startIdx;
-  let visibleStartIdx = Math.max(minStartIdx, endIdx - (windowBars - rightPad - 1));
-  if (!isAnimatedReplay && (step.showLevels || step.showOutcome) && state.entryIdx < visibleStartIdx) {
-    const candidateStart = Math.max(startIdx, state.entryIdx - 14);
-    if ((endIdx + rightPad - candidateStart + 1) <= windowBars) {
-      visibleStartIdx = candidateStart;
-    }
-  }
-  const visibleEndIdx = isAnimatedReplay
-    ? endIdx
-    : Math.min(state.bars.length - 1, Math.max(endIdx + rightPad, visibleStartIdx + windowBars - 1));
-  const visibleBars = state.bars.slice(visibleStartIdx, visibleEndIdx + 1);
-  const legend = [];
-  const showVolume = state.lesson.showVolumePanel;
-  const showRsi = state.lesson.showRsiPanel;
-  if (volEl) volEl.style.display = showVolume ? 'block' : 'none';
-  if (rsiEl) rsiEl.style.display = showRsi ? 'block' : 'none';
-
-  const base = {
-    layout:   { background:{type:'Solid',color:'#ffffff'}, textColor:'#656d76' },
-    grid:     { vertLines:{color:'#eaeef2'}, horzLines:{color:'#eaeef2'} },
-    crosshair:{ mode: 1 },
-    rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.08, bottom:0.15} },
-    timeScale: { borderColor:'#d0d7de', timeVisible:true },
-    autoSize: true,
-  };
-  const chart = LightweightCharts.createChart(chartEl, base);
-  _charts.push(chart);
-
-  const candle = chart.addCandlestickSeries({
-    upColor:'#1a7f37', downColor:'#cf222e',
-    borderUpColor:'#1a7f37', borderDownColor:'#cf222e',
-    wickUpColor:'#1a7f37', wickDownColor:'#cf222e',
-  });
-  candle.setData(visibleBars);
-
-  const sliceSeries = series => series.slice(visibleStartIdx, visibleEndIdx + 1);
-  const addGuideLine = (price, color, title) => {
-    if (price == null) return;
-    candle.createPriceLine({
-      price,
-      color,
-      lineWidth: 1,
-      lineStyle: 2,
-      axisLabelVisible: true,
-      title,
-    });
-  };
-  addLine(chart, sliceSeries(calcEMA(state.bars,10)), '#1a7f37', 1.6);
-  addLine(chart, sliceSeries(calcSMA(state.bars,50)), '#cf222e', 1.6);
-  addLine(chart, sliceSeries(calcSMA(state.bars,200)), '#111111', 1.6);
-  legend.push({c:'#1a7f37',l:'EMA10'}, {c:'#cf222e',l:'SMA50'}, {c:'#111111',l:'SMA200'});
-
-  const ip = state.lesson.strategy.indicator_params || {};
-  if (state.lesson.id === 'ma_cross') {
-    const f = ip.ma_fast || 10, s = ip.ma_slow || 20;
-    if (f !== 10) { addLine(chart, sliceSeries(calcEMA(state.bars, f)), '#d97706', 1.4); legend.push({c:'#d97706',l:'EMA'+f}); }
-    if (s !== 50 && s !== 200) { addLine(chart, sliceSeries(calcSMA(state.bars, s)), '#0969da', 1.4); legend.push({c:'#0969da',l:'SMA'+s}); }
-  } else if (state.lesson.id === 'bb_squeeze') {
-    const bb = calcBB(state.bars, ip.bb_period || 20, ip.bb_mult || 2.0);
-    const kc = calcKC(state.bars, ip.kc_mult || 2.0);
-    addLine(chart, sliceSeries(bb.upper), '#7c3aed', 1.1, true);
-    addLine(chart, sliceSeries(bb.lower), '#7c3aed', 1.1, true);
-    addLine(chart, sliceSeries(kc.upper), '#c2410c', 1.1, true);
-    addLine(chart, sliceSeries(kc.lower), '#c2410c', 1.1, true);
-    legend.push({c:'#7c3aed',l:'BB'}, {c:'#c2410c',l:'KC'});
-  }
-
-  const structureMarkers = [];
-  if (state.lesson.id === 'pivot_breakout') {
-    const pivotGuide = learningPivotBreakoutGuide(state, visibleStartIdx, visibleEndIdx);
-    if (pivotGuide) {
-      addLine(chart, pivotGuide, '#d97706', 2, true);
-      legend.push({c:'#d97706',l:'Breakout level'});
-    }
-  } else if (state.lesson.id === 'trendline_breakout') {
-    const trendlineGuide = learningTrendlineBreakoutGuide(state, visibleStartIdx, visibleEndIdx);
-    if (trendlineGuide && trendlineGuide.points.length) {
-      addLine(chart, trendlineGuide.points, '#d97706', 2, false);
-      legend.push({c:'#d97706',l:'Breakout trendline'});
-      if (trendlineGuide.anchor.idx >= visibleStartIdx && trendlineGuide.anchor.idx <= visibleEndIdx) {
-        structureMarkers.push({time:state.bars[trendlineGuide.anchor.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Anchor'});
-      }
-      if (trendlineGuide.pivot.idx >= visibleStartIdx && trendlineGuide.pivot.idx <= visibleEndIdx) {
-        structureMarkers.push({time:state.bars[trendlineGuide.pivot.idx].time, position:'aboveBar', color:'#d97706', shape:'circle', text:'Pivot'});
-      }
-    }
-  }
-
-  if (showVolume && volEl) {
-    const volChart = LightweightCharts.createChart(volEl, {
-      ...base,
-      rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.12, bottom:0.05}, visible:true },
-      timeScale: {...base.timeScale, visible:false},
-      autoSize: true,
-    });
-    _charts.push(volChart);
-    const volSeries = volChart.addHistogramSeries({
-      color:'#d0d7de', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
-    });
-    volSeries.setData(visibleBars.map(b => ({
-      time: b.time,
-      value: b.volume || 0,
-      color: b.close >= b.open ? '#b7e5c6' : '#ffc1bd',
-    })));
-    const volMa = volChart.addLineSeries({
-      color:'#9a6700', lineWidth:1.5, priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
-    });
-    volMa.setData(sliceSeries(calcVolumeSMA(state.bars, 20)));
-    legend.push({c:'#9a6700',l:'Vol MA20'});
-    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) volChart.timeScale().setVisibleRange(r); });
-  }
-
-  if (showRsi && rsiEl) {
-    const rsiChart = LightweightCharts.createChart(rsiEl, {
-      ...base,
-      height: 80,
-      timeScale: {...base.timeScale, visible:false},
-    });
-    _charts.push(rsiChart);
-    const period = ip.rsi_period || 14;
-    const threshold = ip.rsi_threshold || 40;
-    const rsiSeries = rsiChart.addLineSeries({color:'#7c3aed', lineWidth:1, priceLineVisible:false, lastValueVisible:false});
-    rsiSeries.setData(sliceSeries(calcRSI(state.bars, period)));
-    rsiSeries.createPriceLine({price:threshold, color:'#8c959f', lineWidth:1, lineStyle:2});
-    legend.push({c:'#7c3aed', l:'RSI(' + period + ')'});
-    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) rsiChart.timeScale().setVisibleRange(r); });
-  }
-
-  const markers = [...structureMarkers];
-  const entryBar = state.bars[state.entryIdx];
-  const exitBar = state.bars[Math.min(state.exitIdx, state.bars.length - 1)];
-  const exitEvents = state.position.exit_events || [];
-  if (step.showTrigger && entryBar && state.entryIdx <= endIdx) {
-    addGuideLine(state.position.entry_price, '#0969da', 'Trigger');
-    legend.push({c:'#0969da',l:'Trigger'});
-    markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'circle', text:'Trigger'});
-  }
-  if (step.showLevels) {
-    addGuideLine(state.position.stop_price, '#cf222e', 'Stop');
-    addGuideLine(state.position.tp1_price, '#9a6700', 'TP1');
-    legend.push({c:'#cf222e',l:'Stop'}, {c:'#9a6700',l:'TP1'});
-    if (state.position.tp2_price != null) {
-      addGuideLine(state.position.tp2_price, '#7c3aed', 'TP2');
-      legend.push({c:'#7c3aed',l:'TP2'});
-    }
-    if (entryBar && state.entryIdx <= endIdx) {
-      markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'arrowUp', text:'Entry'});
-    }
-  }
-  if (step.showLevels) {
-    exitEvents.forEach((event, idx) => {
-      const bar = state.bars[event.idx];
-      if (!bar || event.idx > endIdx) return;
-      const isFinal = idx === exitEvents.length - 1;
-      markers.push({
-        time: bar.time,
-        position: 'aboveBar',
-        color: isFinal ? '#111111' : '#9a6700',
-        shape: 'arrowDown',
-        text: exitLbl(event.reason),
-      });
-    });
-  }
-  if (step.showOutcome && exitBar && state.exitIdx <= endIdx && !exitEvents.length) {
-    markers.push({time:exitBar.time, position:'aboveBar', color:'#111111', shape:'arrowDown', text:exitLbl(state.position.exit_reason || 'exit')});
-  }
-
-  candle.setMarkers(markers.sort((a,b) => a.time < b.time ? -1 : 1));
-  chart.timeScale().fitContent();
-
-  const legEl = document.getElementById('learn-chart-legend');
-  if (legEl) legEl.innerHTML = legend.map(i => '<div class="leg"><div class="leg-line" style="background:' + i.c + '"></div>' + i.l + '</div>').join('');
-}
 
 // Learning v2: mock curriculum only, no right-side data panel.
 function learningCopyForStrategy(id) {
@@ -2282,354 +1425,15 @@ function buildMockLearningLessons() {
   });
 }
 
-function collectLearningLessons() {
-  if (!_learningLessonCatalog) _learningLessonCatalog = buildMockLearningLessons();
-  return _learningLessonCatalog;
-}
 
-function renderLearningHome() {
-  const lessons = collectLearningLessons();
-  const regimes = ['uptrend', 'choppy', 'downtrend'];
-  const sections = regimes.map(regime => {
-    const items = lessons.filter(lesson => lesson.regime === regime);
-    if (!items.length) return '';
-    const meta = learningRegimeMeta(regime);
-    const cards = items.map(lesson =>
-      '<div class="learn-card">' +
-        '<div class="learn-card-top">' +
-          '<h3>' + lesson.copy.title + '</h3>' +
-          '<span class="learn-chip ' + regime + '">' + meta.title + '</span>' +
-        '</div>' +
-        '<div class="learn-copy">' + lesson.copy.summary + '</div>' +
-        '<div class="learn-meta">' +
-          '<span><strong>Mode</strong> Mock lesson</span>' +
-          '<span><strong>Focus</strong> ' + lesson.focus + '</span>' +
-          '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span>' +
-        '</div>' +
-        '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
-      '</div>'
-    ).join('');
-    return '<section class="learn-section">' +
-      '<div class="learn-section-head"><div><h3>' + meta.title + '</h3><div class="learn-section-copy">' + meta.copy + '</div></div></div>' +
-      '<div class="learn-grid">' + cards + '</div>' +
-    '</section>';
-  }).join('');
 
-  document.getElementById('page').innerHTML =
-    '<div class="learn-home">' +
-      '<div class="learn-intro">' +
-        '<div><h2>Learning</h2><p>Start with the market regime, then learn the strategy through mock market data built only to teach the setup. These lessons do not depend on chart-export or live backtest examples.</p></div>' +
-      '</div>' +
-      sections +
-    '</div>';
-}
 
-function learningStepMeta(state) {
-  const copy = state.lesson.copy;
-  const triggerIdx = state.entryIdx;
-  const setupEnd = Math.max(Math.min(triggerIdx - 3, state.bars.length - 1), Math.min(16, state.bars.length - 1));
-  return [
-    {
-      title: '1. Setup',
-      text: copy.setup,
-      focusEnd: setupEnd,
-      showTrigger: false,
-      showLevels: false,
-      showOutcome: false,
-    },
-    {
-      title: '2. Trigger',
-      text: copy.trigger,
-      focusEnd: triggerIdx,
-      showTrigger: true,
-      showLevels: false,
-      showOutcome: false,
-    },
-    {
-      title: '3. Risk & Target',
-      text: copy.management,
-      focusEnd: Math.min(state.bars.length - 1, Math.max(triggerIdx + 6, triggerIdx)),
-      showTrigger: true,
-      showLevels: true,
-      showOutcome: false,
-    },
-    {
-      title: '4. Outcome',
-      text: state.lesson.outcomeText || 'The chart now extends through the planned outcome so you can see how the setup is meant to behave after entry.',
-      focusEnd: Math.min(state.bars.length - 1, Math.max(state.exitIdx + 4, triggerIdx + 8)),
-      showTrigger: true,
-      showLevels: true,
-      showOutcome: true,
-    },
-  ];
-}
 
-async function renderLearningLesson(stratId, regime) {
-  const lesson = collectLearningLessons().find(x => x.id === stratId && x.regime === regime);
-  if (!lesson) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Lesson not found.</div>';
-    return;
-  }
-  document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading lesson...</div>';
 
-  try {
-    await ensureChartLibrary();
-  } catch (err) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson chart library: ' + err.message + '</div>';
-    return;
-  }
 
-  _learningState = {
-    lesson,
-    bars: lesson.bars,
-    entryIdx: lesson.entryIdx,
-    exitIdx: lesson.exitIdx,
-    position: lesson.position,
-    step: 0,
-    revealIdx: null,
-    autoPlaying: false,
-  };
 
-  document.getElementById('page').innerHTML =
-    '<div class="learn-player">' +
-      '<div class="pg-hdr">' +
-        '<div class="pg-hdr-inner">' +
-          '<a class="back-btn" onclick="nav(\'learning\')">← Learning</a>' +
-          '<div class="pg-hdr-center"><span class="pg-title">' + lesson.copy.title + '</span>' + pill(lesson.regime) + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="learn-layout">' +
-        '<div class="learn-chart-shell">' +
-          '<div class="learn-chart-head">' +
-            '<div class="learn-meta"><span><strong>Mode</strong> Mock lesson</span><span><strong>Focus</strong> ' + lesson.focus + '</span><span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span></div>' +
-          '</div>' +
-          '<div class="learn-step-copy" id="learn-step-copy"></div>' +
-          '<div class="learn-chart-stage"><div id="learn-chart"></div><div id="learn-chart-volume"></div><div id="learn-chart-rsi"></div></div>' +
-          '<div id="learn-chart-legend"></div>' +
-          '<div class="learn-playbar">' +
-            '<div class="learn-playbar-inner">' +
-              '<div class="learn-play-controls">' +
-                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) - 1, {animate:false})">Prev</button>' +
-                '<button class="learn-btn" id="learn-play-btn" onclick="toggleLearningAutoplay()">Play</button>' +
-                '<button class="learn-btn alt" onclick="setLearningStep((_learningState ? _learningState.step : 0) + 1, {animate:true})">Next</button>' +
-                '<button class="learn-btn alt" onclick="replayLearningTrigger()">Replay Trigger</button>' +
-              '</div>' +
-              '<div class="learn-play-steps"><div class="learn-step-pills" id="learn-step-pills"></div></div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
 
-  setLearningStep(0, {animate:false});
-}
 
-function renderLearningChrome() {
-  const state = _learningState;
-  if (!state) return;
-  const steps = learningStepMeta(state);
-  const step = steps[state.step] || steps[0];
-  const playBtn = document.getElementById('learn-play-btn');
-  if (playBtn) playBtn.textContent = state.autoPlaying ? 'Pause' : 'Play';
-
-  const pills = document.getElementById('learn-step-pills');
-  if (pills) {
-    pills.innerHTML = steps.map((s, idx) =>
-      '<button class="learn-step-pill ' + (idx === state.step ? 'active' : '') + '" onclick="setLearningStep(' + idx + ', {animate:' + ((idx === 1 || idx === 2) ? 'true' : 'false') + '})">' + s.title + '</button>'
-    ).join('');
-  }
-
-  const copyEl = document.getElementById('learn-step-copy');
-  if (!copyEl) return;
-  copyEl.innerHTML =
-    '<div class="kicker">' + learningRegimeMeta(state.lesson.regime).title + ' lesson</div>' +
-    '<div class="title">' + step.title + '</div>' +
-    '<div class="text">' + step.text + '</div>';
-}
-
-function setLearningStep(nextStep, opts={}) {
-  const state = _learningState;
-  if (!state) return;
-  const steps = learningStepMeta(state);
-  const maxStep = steps.length - 1;
-  state.step = Math.max(0, Math.min(maxStep, nextStep));
-  state.revealIdx = null;
-  renderLearningChrome();
-  if (state.step === 1 && opts.animate !== false) animateLearningTrigger();
-  else renderLearningChart();
-}
-
-function animateLearningTrigger() {
-  const state = _learningState;
-  if (!state) return;
-  clearLearningTimers();
-  const startIdx = Math.max(0, state.entryIdx - 4);
-  const finalIdx = state.entryIdx;
-  const tick = idx => {
-    if (!_learningState || _learningState !== state) return;
-    state.revealIdx = idx;
-    renderLearningChart();
-    if (idx < finalIdx) _learningTimer = setTimeout(() => tick(idx + 1), 320);
-  };
-  tick(startIdx);
-}
-
-function replayLearningTrigger() {
-  if (!_learningState) return;
-  setLearningStep(1, {animate:true});
-}
-
-function toggleLearningAutoplay() {
-  const state = _learningState;
-  if (!state) return;
-  state.autoPlaying = !state.autoPlaying;
-  renderLearningChrome();
-  clearLearningTimers();
-  if (!state.autoPlaying) return;
-  const advance = () => {
-    if (!_learningState || !_learningState.autoPlaying) return;
-    if (_learningState.step >= learningStepMeta(_learningState).length - 1) {
-      _learningState.autoPlaying = false;
-      renderLearningChrome();
-      return;
-    }
-    const next = _learningState.step + 1;
-    setLearningStep(next, {animate: next === 1});
-    const delay = next === 1 ? 2600 : 2200;
-    _learningAutoTimer = setTimeout(advance, delay);
-  };
-  advance();
-}
-
-function renderLearningChart() {
-  const state = _learningState;
-  if (!state) return;
-  _charts.forEach(c => { try { c.remove(); } catch(_) {} });
-  _charts = [];
-
-  const chartEl = document.getElementById('learn-chart');
-  const volEl = document.getElementById('learn-chart-volume');
-  const rsiEl = document.getElementById('learn-chart-rsi');
-  if (!chartEl) return;
-
-  const steps = learningStepMeta(state);
-  const step = steps[state.step] || steps[0];
-  const endIdx = (state.step === 1 || state.step === 2) && state.revealIdx != null ? state.revealIdx : step.focusEnd;
-  const visibleBars = state.bars.slice(0, Math.max(1, endIdx + 1));
-  const legend = [];
-  const showVolume = state.lesson.showVolumePanel;
-  const showRsi = state.lesson.showRsiPanel;
-  if (volEl) volEl.style.display = showVolume ? 'block' : 'none';
-  if (rsiEl) rsiEl.style.display = showRsi ? 'block' : 'none';
-
-  const base = {
-    layout:   { background:{type:'Solid',color:'#ffffff'}, textColor:'#656d76' },
-    grid:     { vertLines:{color:'#eaeef2'}, horzLines:{color:'#eaeef2'} },
-    crosshair:{ mode: 1 },
-    rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.08, bottom:0.15} },
-    timeScale: { borderColor:'#d0d7de', timeVisible:true },
-    autoSize: true,
-  };
-  const chart = LightweightCharts.createChart(chartEl, base);
-  _charts.push(chart);
-
-  const candle = chart.addCandlestickSeries({
-    upColor:'#1a7f37', downColor:'#cf222e',
-    borderUpColor:'#1a7f37', borderDownColor:'#cf222e',
-    wickUpColor:'#1a7f37', wickDownColor:'#cf222e',
-  });
-  candle.setData(visibleBars);
-
-  addLine(chart, calcEMA(visibleBars,10), '#1a7f37', 1.6);
-  addLine(chart, calcSMA(visibleBars,50), '#cf222e', 1.6);
-  addLine(chart, calcSMA(visibleBars,200), '#111111', 1.6);
-  legend.push({c:'#1a7f37',l:'EMA10'}, {c:'#cf222e',l:'SMA50'}, {c:'#111111',l:'SMA200'});
-
-  const ip = state.lesson.indicator_params || {};
-  if (state.lesson.id === 'ma_cross') {
-    const f = ip.ma_fast || 10, s = ip.ma_slow || 20;
-    if (f !== 10) { addLine(chart, calcEMA(visibleBars, f), '#d97706', 1.4); legend.push({c:'#d97706',l:'EMA'+f}); }
-    if (s !== 50 && s !== 200) { addLine(chart, calcSMA(visibleBars, s), '#0969da', 1.4); legend.push({c:'#0969da',l:'SMA'+s}); }
-  } else if (state.lesson.id === 'bb_squeeze') {
-    const bb = calcBB(visibleBars, ip.bb_period || 20, ip.bb_mult || 2.0);
-    const kc = calcKC(visibleBars, ip.kc_mult || 1.5);
-    addLine(chart, bb.upper, '#7c3aed', 1.1, true);
-    addLine(chart, bb.lower, '#7c3aed', 1.1, true);
-    addLine(chart, kc.upper, '#c2410c', 1.1, true);
-    addLine(chart, kc.lower, '#c2410c', 1.1, true);
-    legend.push({c:'#7c3aed',l:'BB'}, {c:'#c2410c',l:'KC'});
-  }
-
-  if (showVolume && volEl) {
-    const volChart = LightweightCharts.createChart(volEl, {
-      ...base,
-      rightPriceScale: { borderColor:'#d0d7de', scaleMargins:{top:0.12, bottom:0.05}, visible:true },
-      timeScale: {...base.timeScale, visible:false},
-      autoSize: true,
-    });
-    _charts.push(volChart);
-    const volSeries = volChart.addHistogramSeries({
-      color:'#d0d7de', priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
-    });
-    volSeries.setData(visibleBars.map(b => ({
-      time: b.time,
-      value: b.volume || 0,
-      color: b.close >= b.open ? '#b7e5c6' : '#ffc1bd',
-    })));
-    const volMa = volChart.addLineSeries({
-      color:'#9a6700', lineWidth:1.5, priceFormat:{type:'volume'}, priceLineVisible:false, lastValueVisible:true,
-    });
-    volMa.setData(calcVolumeSMA(visibleBars, 20));
-    legend.push({c:'#9a6700',l:'Vol MA20'});
-    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) volChart.timeScale().setVisibleRange(r); });
-  }
-
-  if (showRsi && rsiEl) {
-    const rsiChart = LightweightCharts.createChart(rsiEl, {
-      ...base,
-      height: 80,
-      timeScale: {...base.timeScale, visible:false},
-    });
-    _charts.push(rsiChart);
-    const period = ip.rsi_period || 14;
-    const threshold = ip.rsi_threshold || 40;
-    const rsiSeries = rsiChart.addLineSeries({color:'#7c3aed', lineWidth:1, priceLineVisible:false, lastValueVisible:false});
-    rsiSeries.setData(calcRSI(visibleBars, period));
-    rsiSeries.createPriceLine({price:threshold, color:'#8c959f', lineWidth:1, lineStyle:2});
-    legend.push({c:'#7c3aed', l:'RSI(' + period + ')'});
-    chart.timeScale().subscribeVisibleTimeRangeChange(r => { if (r) rsiChart.timeScale().setVisibleRange(r); });
-  }
-
-  const markers = [];
-  const entryBar = state.bars[state.entryIdx];
-  const exitBar = state.bars[Math.min(state.exitIdx, visibleBars.length - 1)];
-  if (step.showTrigger && entryBar && state.entryIdx < visibleBars.length) {
-    addLine(chart, constantLineData(visibleBars, state.position.entry_price), '#0969da', 1.3, true);
-    legend.push({c:'#0969da',l:'Trigger'});
-    markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'circle', text:'Trigger'});
-  }
-  if (step.showLevels) {
-    addLine(chart, constantLineData(visibleBars, state.position.stop_price), '#cf222e', 1.1, true);
-    addLine(chart, constantLineData(visibleBars, state.position.tp1_price), '#9a6700', 1.1, true);
-    legend.push({c:'#cf222e',l:'Stop'}, {c:'#9a6700',l:'TP1'});
-    if (state.position.tp2_price != null) {
-      addLine(chart, constantLineData(visibleBars, state.position.tp2_price), '#7c3aed', 1.1, true);
-      legend.push({c:'#7c3aed',l:'TP2'});
-    }
-    if (entryBar && state.entryIdx < visibleBars.length) {
-      markers.push({time:entryBar.time, position:'belowBar', color:'#0969da', shape:'arrowUp', text:'Entry'});
-    }
-  }
-  if (step.showOutcome && exitBar && state.exitIdx < visibleBars.length) {
-    markers.push({time:exitBar.time, position:'aboveBar', color:'#111111', shape:'arrowDown', text:exitLbl(state.position.exit_reason || 'exit')});
-  }
-
-  candle.setMarkers(markers.sort((a,b) => a.time < b.time ? -1 : 1));
-  chart.timeScale().fitContent();
-
-  const legEl = document.getElementById('learn-chart-legend');
-  if (legEl) legEl.innerHTML = legend.map(i => '<div class="leg"><div class="leg-line" style="background:' + i.c + '"></div>' + i.l + '</div>').join('');
-}
 
 function constantLineData(bars, price) {
   return (bars || []).map(b => ({time:b.time, value:price}));
@@ -3287,6 +2091,7 @@ function learningRealBuildWindow(position, ohlcv) {
 }
 
 function collectLearningLessons() {
+  if (_learningLessonCatalog && _learningLessonCatalog.length) return _learningLessonCatalog;
   const data = currentData();
   const strats = ((data && data.strategies) || []).filter(isVisibleStrategy);
   return learningRealCandidates().map(spec => {
@@ -3316,15 +2121,18 @@ function renderLearningHome() {
     document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No learning lessons available for the active export. Run chart-export first.</div>';
     return;
   }
+  const intro = _learningLessonCatalog && _learningLessonCatalog.length
+    ? 'Each lesson uses an anonymized higher-volume AU market window sliced from the local OHLCV export. The symbol and raw price scale are hidden, but the candle structure, noise, and volume behaviour stay real.'
+    : 'Each lesson uses an anonymized real market window from the active export. The symbol and raw price scale are hidden, but the candle structure, noise, and volume behaviour stay real.';
 
   const cards = lessons.map(lesson =>
     '<div class="learn-card">' +
       '<div class="learn-card-top">' +
         '<h3>' + lesson.copy.title + '</h3>' +
+        '<span class="learn-chip ' + lesson.regime + '">' + learningRegimeMeta(lesson.regime).title + '</span>' +
       '</div>' +
       '<div class="learn-copy">' + lesson.copy.summary + '</div>' +
       '<div class="learn-meta">' +
-        '<span><strong>Source</strong> Anonymized real window</span>' +
         '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span>' +
       '</div>' +
       '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
@@ -3334,7 +2142,7 @@ function renderLearningHome() {
   document.getElementById('page').innerHTML =
     '<div class="learn-home">' +
       '<div class="learn-intro">' +
-        '<div><h2>Learning</h2><p>Each lesson uses an anonymized real market window from the active export. The symbol and raw price scale are hidden, but the candle structure, noise, and volume behaviour stay real.</p></div>' +
+        '<div><h2>Learning</h2><p>' + intro + '</p></div>' +
       '</div>' +
       '<div class="learn-grid">' + cards + '</div>' +
     '</div>';
@@ -3360,27 +2168,45 @@ async function renderLearningLesson(stratId, regime) {
   }
   document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading lesson...</div>';
 
-  let ohlcvMap;
-  try {
-    ohlcvMap = await loadOhlcvForActiveMarket();
-    await ensureChartLibrary();
-  } catch (err) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
-    return;
-  }
+  let windowData = null;
+  if (lesson.bars && lesson.position) {
+    try {
+      await ensureChartLibrary();
+      windowData = {
+        bars: lesson.bars,
+        baseIdx: lesson.baseIdx || 0,
+        entryIdx: lesson.entryIdx,
+        exitIdx: lesson.exitIdx,
+        position: lesson.position,
+      };
+    } catch (err) {
+      document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
+      return;
+    }
+  } else {
+    let ohlcvMap;
+    try {
+      ohlcvMap = await loadOhlcvForActiveMarket();
+      await ensureChartLibrary();
+    } catch (err) {
+      document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--red)">Error loading lesson data: ' + err.message + '</div>';
+      return;
+    }
 
-  const position = learningRealChoosePosition(lesson.strategy);
-  if (!position) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No representative trade found for this lesson.</div>';
-    return;
+    const allPositions = extractLearningPositions(lesson.strategy.symbols || [])
+      .sort((a, b) => learningRealRepresentativeScore(b) - learningRealRepresentativeScore(a));
+    const position = allPositions.find(p => ohlcvMap[p.symbol] && ohlcvMap[p.symbol].length) || allPositions[0] || null;
+    if (!position) {
+      document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No representative trade found for this lesson.</div>';
+      return;
+    }
+    const ohlcv = ohlcvMap[position.symbol];
+    if (!ohlcv || !ohlcv.length) {
+      document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for the lesson source symbol.</div>';
+      return;
+    }
+    windowData = learningRealBuildWindow(position, ohlcv);
   }
-  const ohlcv = ohlcvMap[position.symbol];
-  if (!ohlcv || !ohlcv.length) {
-    document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No OHLCV found for the lesson source symbol.</div>';
-    return;
-  }
-
-  const windowData = learningRealBuildWindow(position, ohlcv);
   if (!windowData) {
     document.getElementById('page').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Could not build a lesson window from the exported trade history.</div>';
     return;
