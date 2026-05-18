@@ -9,9 +9,9 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///alpha_engine_dev.db")
 
-# _JsonType on Postgres gives index support; plain JSON on SQLite
+# JSONB on Postgres gives index support; plain JSON on SQLite
 if "postgresql" in DATABASE_URL:
-    from sqlalchemy.dialects.postgresql import _JsonType as _JsonType
+    from sqlalchemy.dialects.postgresql import JSONB as _JsonType
 else:
     _JsonType = JSON  # type: ignore[assignment,misc]
 
