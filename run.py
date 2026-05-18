@@ -21,14 +21,33 @@ MARKETS = [
     ("all",       "All markets"),
 ]
 
-COMMANDS = [
-    ("run-all",         "Full pipeline: regime → optimise → stability → report → chart-export"),
-    ("report",          "Build and view the latest research summary"),
-    ("regime",          "5yr regime discovery — which strategies suit uptrend/choppy/downtrend"),
-    ("optimise",        "TP exit optimisation on PASS regime pairs"),
-    ("stability",       "Review regime-window stability of baseline and optimised pairs"),
-    ("chart-export",    "Export optimised backtests → docs/chart_data.json for web viewer"),
-    ("serve",           "Start local web server → http://localhost:8000  (Ctrl+C to stop)"),
+MENU_COMMANDS = [
+    ("research",        "Full research pipeline (regime → optimise → stability → chart-export)"),
+    ("history",         "Show active roster changes from optimise runs"),
+    ("active",          "Show current live strategy roster"),
+    ("serve",           "Open local viewer at http://localhost:8000"),
+    ("scan",            "Test today's signals locally"),
+    ("advanced",        "Extra and debug commands"),
+]
+
+ADVANCED_COMMANDS = [
+    ("regime",          "Discover strategy x regime fit"),
+    ("optimise",        "Grid optimise only"),
+    ("stability",       "Check episode consistency"),
+    ("chart-export",    "Rebuild docs/chart_data.json"),
+    ("back",            "Return to main menu"),
+]
+
+CLI_COMMANDS = [
+    ("research",        "Full research pipeline (regime → optimise → stability → chart-export)"),
+    ("regime",          "Discover strategy x regime fit"),
+    ("optimise",        "Grid optimise only"),
+    ("stability",       "Check episode consistency"),
+    ("chart-export",    "Rebuild docs/chart_data.json"),
+    ("serve",           "Open local viewer"),
+    ("active",          "Show current live strategy roster"),
+    ("history",         "Show active roster history"),
+    ("scan",            "Generate signals"),
 ]
 
 _ADAPTERS = {
@@ -50,31 +69,44 @@ def _get_adapter(market: str):
 
 
 def _menu(title: str, options: list[tuple[str, str]]) -> str:
-    W = 52
+    W = 86
     print()
-    print("  ┌" + "─" * W + "┐")
-    print(f"  │  {title:<{W-2}}│")
-    print("  ├" + "─" * W + "┤")
+    print("  +" + "-" * W + "+")
+    print(f"  |  {title:<{W-2}}|")
+    print("  +" + "-" * W + "+")
     for i, (key, label) in enumerate(options, 1):
-        row = f"  {i}.  {key:<14}  {label}"
-        print(f"  │  {row:<{W-2}}│")
-    print("  └" + "─" * W + "┘")
+        row = f"{i:>2}. {key:<14} {label}"
+        print(f"  |  {row:<{W-2}}|")
+    print("  +" + "-" * W + "+")
 
     keys = [k for k, _ in options]
     while True:
-        raw = input("  › ").strip().lower()
+        raw = input("  > ").strip().lower()
         if raw.isdigit():
             idx = int(raw) - 1
             if 0 <= idx < len(options):
                 return keys[idx]
         elif raw in keys:
             return raw
-        print(f"  Enter 1–{len(options)} or a name from the list.")
+        print(f"  Enter 1-{len(options)} or a command name from the list.")
 
 
 def _ask(prompt: str, default: str) -> str:
     val = input(f"  {prompt} [{default}]: ").strip()
     return val if val else default
+
+
+def _ask_bool(prompt: str, default: bool = False) -> bool:
+    default_text = "y" if default else "n"
+    while True:
+        raw = input(f"  {prompt} [y/n, default={default_text}]: ").strip().lower()
+        if not raw:
+            return default
+        if raw in ("y", "yes"):
+            return True
+        if raw in ("n", "no"):
+            return False
+        print("  Enter y or n.")
 
 
 def _parse_symbols(raw: str) -> int | None:
@@ -108,38 +140,55 @@ def _run_market(market: str, command: str, args: argparse.Namespace) -> None:
 
 
 def interactive() -> None:
-    print()
-    print("  ╔══════════════════════════════════════════════════════╗")
-    print("  ║            ALPHA ENGINE  — signal system            ║")
-    print("  ╚══════════════════════════════════════════════════════╝")
+    while True:
+        print()
+        print("  ======================================================")
+        print("  ALPHA ENGINE")
+        print("  research = full pipeline  |  optimise = grid only")
+        print("  Railway daily: python -m scripts.cron_daily")
+        print("  ======================================================")
 
-    command = _menu("SELECT COMMAND", COMMANDS)
-    if command == "serve":
-        _serve()
+        command = _menu("SELECT COMMAND", MENU_COMMANDS)
+        if command == "advanced":
+            command = _menu("ADVANCED COMMANDS", ADVANCED_COMMANDS)
+            if command == "back":
+                continue
+        if command == "serve":
+            _serve()
+            return
+
+        market_options = MARKETS + [("back", "Back to command menu")]
+        market = _menu("SELECT MARKET", market_options)
+        if market == "back":
+            continue
+
+        symbols = None
+        if command in ("research", "regime", "optimise", "chart-export"):
+            symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
+
+        args = argparse.Namespace(
+            capital=1_000_000,
+            symbols=symbols,
+            dry_run=False,
+            strategy_filter=None,
+        )
+
+        from db.models import init_db
+        init_db()
+
+        targets = ALL_MARKETS if market == "all" else [market]
+        for m in targets:
+            if len(targets) > 1:
+                print(f"\n{'='*60}\n  MARKET: {m.upper()}\n{'='*60}")
+            _run_market(m, command, args)
         return
-    market  = _menu("SELECT MARKET", MARKETS)
-
-    symbols = None
-    if command in ("run-all", "regime", "optimise"):
-        symbols = _parse_symbols(_ask("Symbols (blank/all = all above turnover)", "all"))
-
-    args = argparse.Namespace(capital=1_000_000, symbols=symbols, dry_run=False, strategy_filter=None)
-
-    from db.models import init_db
-    init_db()
-
-    targets = ALL_MARKETS if market == "all" else [market]
-    for m in targets:
-        if len(targets) > 1:
-            print(f"\n{'='*60}\n  MARKET: {m.upper()}\n{'='*60}")
-        _run_market(m, command, args)
 
 
 def cli() -> None:
     """Non-interactive mode: python run.py th regime"""
     parser = argparse.ArgumentParser(prog="python run.py")
     parser.add_argument("market", choices=[m for m, _ in MARKETS])
-    parser.add_argument("command", choices=[c for c, _ in COMMANDS])
+    parser.add_argument("command", choices=[c for c, _ in CLI_COMMANDS])
     parser.add_argument("--capital", type=float, default=1_000_000)
     parser.add_argument("--symbols", type=int)
     parser.add_argument("--strategy", dest="strategy_filter", default=None,

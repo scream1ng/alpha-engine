@@ -3,7 +3,7 @@ import os
 from datetime import date, datetime
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Float,
-    Integer, JSON, String, Text, create_engine, func,
+    Integer, JSON, String, Text, UniqueConstraint, ForeignKey, create_engine, func,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -174,6 +174,83 @@ class RegimeOptimiseModel(Base):
     oos_pass         = Column(Boolean, nullable=False, default=False)
     best_combo       = Column(String)
     optimised_at     = Column(DateTime, default=func.now())
+
+
+class PaperPositionModel(Base):
+    __tablename__ = "paper_positions"
+
+    id               = Column(Integer, primary_key=True)
+    market           = Column(String, nullable=False, index=True)
+    symbol           = Column(String, nullable=False)
+    strategy         = Column(String, nullable=False)
+    regime           = Column(String, nullable=False)
+    entry_date       = Column(Date, nullable=False)
+    entry_price      = Column(Float, nullable=False)
+    sl_price         = Column(Float, nullable=False)
+    sl_current       = Column(Float, nullable=False)      # trail-adjusted live SL
+    tp1_price        = Column(Float, nullable=False)
+    tp2_price        = Column(Float, nullable=True)
+    shares           = Column(Float, nullable=False)      # original position size
+    remaining_shares = Column(Float, nullable=False)      # after partial exits
+    highest_close    = Column(Float, nullable=False)      # for trail stop calc
+    tp1_hit          = Column(Boolean, default=False)
+    tp2_hit          = Column(Boolean, default=False)
+    bars_held        = Column(Integer, default=0)
+    exit_params      = Column(_JsonType)                  # stored from active strategy
+    status           = Column(String, default="open")     # open|closed
+    exit_date        = Column(Date, nullable=True)
+    pnl              = Column(Float, default=0.0)
+    source_signal_id = Column(Integer, ForeignKey("scan_signals.id"))
+
+
+class PaperTradeModel(Base):
+    __tablename__ = "paper_trades"
+
+    id          = Column(Integer, primary_key=True)
+    position_id = Column(Integer, ForeignKey("paper_positions.id"))
+    exit_date   = Column(Date, nullable=False)
+    exit_price  = Column(Float, nullable=False)
+    exit_reason = Column(String, nullable=False)  # sl|tp1|tp2|ema10_exit|trail|time_stop
+    shares      = Column(Float, nullable=False)
+    pnl         = Column(Float, nullable=False)
+
+
+class ScanSignalModel(Base):
+    __tablename__ = "scan_signals"
+
+    id               = Column(Integer, primary_key=True)
+    market           = Column(String, nullable=False, index=True)
+    scan_date        = Column(Date, nullable=False, index=True)
+    symbol           = Column(String, nullable=False)
+    strategy         = Column(String, nullable=False)
+    regime_at_signal = Column(String, nullable=False)
+    direction        = Column(String, default="long")
+    entry_price      = Column(Float, nullable=False)
+    sl_price         = Column(Float, nullable=False)
+    tp1_price        = Column(Float, nullable=False)
+    tp2_price        = Column(Float, nullable=True)
+    atr_at_entry     = Column(Float)
+    rvol_at_entry    = Column(Float)
+    source_active_id = Column(Integer, ForeignKey("active_strategies.id"))
+    status           = Column(String, default="new")  # new|opened|expired|skipped
+    __table_args__ = (UniqueConstraint("market", "scan_date", "symbol", "strategy"),)
+
+
+class ActiveStrategyModel(Base):
+    __tablename__ = "active_strategies"
+
+    id               = Column(Integer, primary_key=True)
+    market           = Column(String, nullable=False, index=True)
+    strategy         = Column(String, nullable=False)
+    regime           = Column(String, nullable=False)
+    params           = Column(_JsonType, nullable=False)
+    indicator_params = Column(_JsonType)
+    promoted_at      = Column(Date, nullable=False)
+    retired_at       = Column(Date, nullable=True)
+    status           = Column(String, default="active")  # active|retired
+    source_combo     = Column(String)
+    notes            = Column(Text, nullable=True)
+    __table_args__ = (UniqueConstraint("market", "strategy", "regime", "promoted_at"),)
 
 
 class RegimeEntryModel(Base):

@@ -12,6 +12,11 @@ from datetime import date, timedelta
 import pandas as pd
 from joblib import Parallel, delayed
 
+from core.active_roster import (
+    diff_active_roster as _diff_active_roster,
+    sync_active_roster_file_to_db,
+    write_active_roster_snapshot,
+)
 from markets.base import MarketAdapter
 
 logger = logging.getLogger(__name__)
@@ -139,6 +144,68 @@ def _build_opt_combos() -> list[dict]:
             rvol_tag = f"_rv{str(rvol).replace('.', 'p')}" if rvol > 0 else ""
             combos.append({**tp, "_label": tp["_label"] + rvol_tag, "rvol_min": rvol})
     return combos
+
+
+def _sync_active_roster_from_optimise(market: str, as_of: date) -> dict:
+    from db.models import RegimeOptimiseModel, SessionLocal
+
+    db = SessionLocal()
+    try:
+        opt_rows = (
+            db.query(RegimeOptimiseModel)
+            .filter_by(market=market)
+            .order_by(RegimeOptimiseModel.strategy, RegimeOptimiseModel.regime)
+            .all()
+        )
+    finally:
+        db.close()
+
+    desired_payload = [
+        {
+            "strategy": row.strategy,
+            "regime": row.regime,
+            "params": row.params or {},
+            "best_combo": row.best_combo or "",
+            "is_calmar": float(row.is_calmar or 0.0),
+        }
+        for row in opt_rows
+    ]
+    write_active_roster_snapshot(market, as_of, desired_payload)
+    result_map = sync_active_roster_file_to_db(
+        as_of=as_of,
+        source="optimise",
+        record_noop=True,
+        market_filter=market,
+    )
+    result = result_map.get(market, {
+        "active_count": 0,
+        "added": [],
+        "changed": [],
+        "retired": [],
+    })
+    summary_lines = [
+        f"active roster synced automatically: active={result['active_count']} +{len(result['added'])} ~{len(result['changed'])} -{len(result['retired'])}",
+    ]
+    for row in result["added"]:
+        summary_lines.append(f"+ {row['strategy']}|{row['regime']} -> `{row['new_combo'] or 'n/a'}`")
+    for row in result["changed"]:
+        summary_lines.append(
+            f"~ {row['strategy']}|{row['regime']} `{row['old_combo'] or 'n/a'}` -> `{row['new_combo'] or 'n/a'}`"
+        )
+    for row in result["retired"]:
+        summary_lines.append(f"- {row['strategy']}|{row['regime']} `{row['old_combo'] or 'n/a'}`")
+
+    if len(summary_lines) > 9:
+        remaining = len(summary_lines) - 9
+        summary_lines = summary_lines[:9] + [f"... and {remaining} more roster changes"]
+
+    return {
+        "active_count": result["active_count"],
+        "added": result["added"],
+        "changed": result["changed"],
+        "retired": result["retired"],
+        "summary_lines": summary_lines,
+    }
 
 
 def _merge_chart_export_payload(existing_payload: dict | None, market_output: dict) -> dict:
@@ -375,6 +442,16 @@ def _run_regime_strategy_par(
         import logging
         logging.getLogger(__name__).warning("regime backtest error %s: %s", strategy_id, exc)
         return strategy_id, []
+
+
+def _run_backtest_par(strategy_cls, params: dict, all_dfs: list, capital: float) -> list:
+    """Worker: single strategy backtest for parallel stability/chart-export sweeps."""
+    from validation.backtest import run_portfolio_backtest
+    try:
+        result = run_portfolio_backtest(all_dfs, strategy_cls(), params, initial_capital=capital)
+        return result.get("trades", [])
+    except Exception:
+        return []
 
 
 def _run_combo_par(
@@ -1164,10 +1241,22 @@ def cmd_optimise_regime(adapter: MarketAdapter, args: argparse.Namespace) -> Non
               f"{r['best_calmar']:>9.2f} {ret_pct:>+9.1f}% {dd_pct:>7.1f}% {delta:>+9.2f}  {r['best_label']}")
     print(f"{'='*W}\n")
 
-    _export_optimise_regime_markdown(results, market, today)
+    report_path, summary_lines = _export_optimise_regime_markdown(results, market, today)
+    if strategy_filter:
+        summary_lines.append(f"active roster sync skipped because optimise ran with --strategy={strategy_filter}")
+    else:
+        sync_result = _sync_active_roster_from_optimise(market, today)
+        summary_lines.extend(sync_result["summary_lines"])
+    _write_run_log(
+        market,
+        "optimise",
+        summary_lines,
+        next_step="review active history, then run scan to generate live signals",
+    )
+    print(f"\n  Markdown: {report_path}")
 
 
-def _export_optimise_regime_markdown(results: list[dict], market: str, as_of) -> None:
+def _export_optimise_regime_markdown(results: list[dict], market: str, as_of) -> tuple[str, list[str]]:
     from pathlib import Path
     from datetime import datetime
 
@@ -1254,9 +1343,7 @@ def _export_optimise_regime_markdown(results: list[dict], market: str, as_of) ->
             f"cal={r['best_calmar']:.2f} ret={r['best_return']*100:+.1f}% "
             f"dd={r['best_dd']*100:.1f}% [{gate}]"
         )
-    _write_run_log(market, "regime-optimise", summary_lines,
-                   next_step="run scan to generate live signals")
-    print(f"\n  Markdown: {latest_path}")
+    return str(latest_path), summary_lines
 
 
 def _build_regime_episodes(label_rows: list) -> dict[str, list[dict]]:
@@ -1515,11 +1602,11 @@ def cmd_stability_report(adapter: MarketAdapter, args: argparse.Namespace) -> No
         return
 
     universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
-    print(f"\n  Fetching {len(universe)} symbols (5yr) ...", flush=True)
+    print(f"\n  Fetching {len(universe)} symbols (5yr, bulk) ...", flush=True)
+    bulk = adapter.ohlcv_bulk(universe, y5_start, today)
     all_dfs = []
-    for idx, symbol in enumerate(universe, 1):
-        print(f"  [{idx}/{len(universe)}] {symbol}", flush=True)
-        df = adapter.ohlcv(symbol, y5_start, today)
+    for symbol in universe:
+        df = bulk.get(symbol, pd.DataFrame())
         df = _attach_benchmark(df, bm_close)
         if df.empty or len(df) < 60:
             continue
@@ -1535,21 +1622,18 @@ def cmd_stability_report(adapter: MarketAdapter, args: argparse.Namespace) -> No
     strategies_map = StrategyRegistry.for_market(market)
     regime_map = {(row.strategy, row.regime): row for row in map_rows}
 
-    print("\n  Running baseline stability checks ...", flush=True)
+    print("\n  Running baseline stability checks (parallel) ...", flush=True)
+    baseline_items = list(strategies_map.items())
+    base_trades_list = Parallel(n_jobs=min(len(baseline_items), 8), backend="loky")(
+        delayed(_run_backtest_par)(
+            strategy_cls,
+            {**strategy_cls().default_params, **_REGIME_DISCOVERY_PARAMS},
+            all_dfs, args.capital,
+        )
+        for _, strategy_cls in baseline_items
+    )
     baseline_rows = []
-    for strategy_id, strategy_cls in strategies_map.items():
-        try:
-            result = run_portfolio_backtest(
-                all_dfs,
-                strategy_cls(),
-                {**strategy_cls().default_params, **_REGIME_DISCOVERY_PARAMS},
-                initial_capital=args.capital,
-            )
-            trades = result.get("trades", [])
-        except Exception as exc:
-            logger.warning("stability baseline error %s: %s", strategy_id, exc)
-            trades = []
-
+    for (strategy_id, _), trades in zip(baseline_items, base_trades_list):
         for regime in REGIMES:
             episode_rows = _episode_rows_from_trades(trades, episode_map.get(regime, []), args.capital)
             summary = _stability_summary(strategy_id, regime, episode_rows)
@@ -1557,24 +1641,14 @@ def cmd_stability_report(adapter: MarketAdapter, args: argparse.Namespace) -> No
             summary["baseline_calmar"] = round(float(base_row.calmar or 0), 2) if base_row else 0.0
             baseline_rows.append(summary)
 
-    print("\n  Running optimised winner stability checks ...", flush=True)
+    print("\n  Running optimised winner stability checks (parallel) ...", flush=True)
+    valid_opts = [(opt, strategies_map[opt.strategy]) for opt in opt_rows if opt.strategy in strategies_map]
+    opt_trades_list = Parallel(n_jobs=min(len(valid_opts), 16), backend="loky")(
+        delayed(_run_backtest_par)(cls, dict(opt.params or {}), all_dfs, args.capital)
+        for opt, cls in valid_opts
+    ) if valid_opts else []
     optimised_rows = []
-    for opt in opt_rows:
-        strategy_cls = strategies_map.get(opt.strategy)
-        if strategy_cls is None:
-            continue
-        try:
-            result = run_portfolio_backtest(
-                all_dfs,
-                strategy_cls(),
-                dict(opt.params or {}),
-                initial_capital=args.capital,
-            )
-            trades = result.get("trades", [])
-        except Exception as exc:
-            logger.warning("stability optimise error %s|%s: %s", opt.strategy, opt.regime, exc)
-            trades = []
-
+    for (opt, _), trades in zip(valid_opts, opt_trades_list):
         episode_rows = _episode_rows_from_trades(trades, episode_map.get(opt.regime, []), args.capital)
         summary = _stability_summary(opt.strategy, opt.regime, episode_rows)
         base_row = regime_map.get((opt.strategy, opt.regime))
@@ -2367,12 +2441,14 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     bm_close = _fetch_benchmark(adapter, y5_start, today)
 
     universe = adapter.universe(today, top_n=getattr(args, "symbols", None))
-    print(f"\n  Fetching {len(universe)} symbols (5yr) ...", flush=True)
+    print(f"\n  Fetching {len(universe)} symbols (5yr, bulk) ...", flush=True)
+    bulk = adapter.ohlcv_bulk(universe, y5_start, today)
+
     all_dfs: list = []
     symbol_df_map: dict = {}
     for idx, symbol in enumerate(universe, 1):
         print(f"  [{idx}/{len(universe)}] {symbol}", flush=True)
-        df = adapter.ohlcv(symbol, y5_start, today)
+        df = bulk.get(symbol, pd.DataFrame())
         if bm_close is not None:
             df = _attach_benchmark(df, bm_close)
         if df.empty or len(df) < 60:
@@ -2399,23 +2475,20 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
                 if v == v  # skip NaN
             }
 
-    print(f"\n  Running {len(opt_rows)} optimised backtests ...", flush=True)
+    valid_opt_rows = [(opt, strategies_map[opt.strategy]) for opt in opt_rows if opt.strategy in strategies_map]
+    print(f"\n  Running {len(valid_opt_rows)} optimised backtests (parallel) ...", flush=True)
+    trades_list = Parallel(n_jobs=min(len(valid_opt_rows), 16), backend="loky")(
+        delayed(_run_backtest_par)(cls, opt.params or {}, all_dfs, args.capital)
+        for opt, cls in valid_opt_rows
+    ) if valid_opt_rows else []
+
     strategies_out: list = []
 
-    for opt_row in opt_rows:
+    for (opt_row, _), raw_trades in zip(valid_opt_rows, trades_list):
         s_id   = opt_row.strategy
         regime = opt_row.regime
         params = opt_row.params or {}
-        cls    = strategies_map.get(s_id)
-        if cls is None:
-            continue
         print(f"  {s_id}|{regime} [{opt_row.best_combo}]", flush=True)
-        try:
-            result = run_portfolio_backtest(all_dfs, cls(), params, initial_capital=args.capital)
-            raw_trades = result.get("trades", [])
-        except Exception as exc:
-            logger.warning("chart-export %s|%s: %s", s_id, regime, exc)
-            continue
 
         # All regime trades — full 5yr window
         trades = [
@@ -2577,7 +2650,7 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         "chart-export",
         [
             f"exported {len(strategies_out)} strategy-regime pairs to `docs/chart_data.json`",
-            f"symbols={total_syms} trades={total_trades} current_regime={current_regime}",
+            f"symbols={len(symbol_df_map)} trades={total_trades} current_regime={current_regime}",
         ],
         next_step="serve viewer and inspect charts for rule fidelity",
     )
@@ -2641,6 +2714,508 @@ def _export_chart_export_markdown(
         path.write_text(content, encoding="utf-8")
 
 
+_PAPER_CAPITAL         = 100_000.0
+_PAPER_MAX_OPEN        = 10
+_PAPER_MAX_PER_STRATEGY = 4
+_PAPER_RISK_PCT        = 0.01
+
+
+def cmd_paper_update(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Daily paper portfolio update: process exits then open new positions."""
+    from core.exit_policy import HardExitPolicy
+    from core.indicators import ema as _ema
+    from core.signal import Signal, Position
+    from db.models import (
+        ActiveStrategyModel, ScanSignalModel,
+        PaperPositionModel, PaperTradeModel, SessionLocal,
+    )
+
+    market = adapter.market_id
+    today  = date.today()
+    start  = today - timedelta(days=60)
+
+    db = SessionLocal()
+    try:
+        open_positions = (
+            db.query(PaperPositionModel)
+            .filter_by(market=market, status="open")
+            .all()
+        )
+        new_signals = (
+            db.query(ScanSignalModel)
+            .filter_by(market=market, scan_date=today, status="new")
+            .all()
+        )
+    finally:
+        db.close()
+
+    symbols_needed = {p.symbol for p in open_positions} | {s.symbol for s in new_signals}
+    if not symbols_needed:
+        print("  Nothing to do — no open positions and no new signals.")
+        return
+
+    print(f"  Fetching {len(symbols_needed)} symbols...", flush=True)
+    bulk = adapter.ohlcv_bulk(list(symbols_needed), start, today)
+
+    bars: dict[str, dict] = {}
+    for symbol, df in bulk.items():
+        if df.empty or len(df) < 15:
+            continue
+        ema10 = _ema(df, 10)
+        last  = df.iloc[-1]
+        bars[symbol] = {
+            "close": float(last["close"]),
+            "high":  float(last["high"]),
+            "low":   float(last["low"]),
+            "open":  float(last["open"]),
+            "ema10": float(ema10.iloc[-1]),
+        }
+
+    exit_policy    = HardExitPolicy()
+    exits_count    = 0
+    opened_count   = 0
+
+    # ── 1. Process exits ──────────────────────────────────────────────────────
+    db = SessionLocal()
+    try:
+        for pos_rec in open_positions:
+            bar = bars.get(pos_rec.symbol)
+            if bar is None:
+                continue
+
+            ep  = pos_rec.exit_params or {}
+            atr = ep.get("atr_at_entry") or max(pos_rec.entry_price - pos_rec.sl_price, 1e-6) / 1.5
+            tp2_entry = pos_rec.tp2_price if pos_rec.tp2_price else pos_rec.entry_price * 9999
+
+            sig = Signal(
+                symbol=pos_rec.symbol, market=market, strategy=pos_rec.strategy,
+                direction="long", entry=pos_rec.entry_price, entry_type="market_close",
+                sl=pos_rec.sl_price, tp1=pos_rec.tp1_price, tp2=tp2_entry, tp3=None,
+                atr=atr, rr=2.0, score=100.0,
+                sl_atr_mult=ep.get("sl_atr_mult", 1.5),
+                tp1_atr_mult=ep.get("tp1_atr_mult", 3.0),
+                tp2_atr_mult=ep.get("tp2_atr_mult", 999.0),
+                trail_atr_mult=ep.get("trail_atr_mult", 999.0),
+                be_trigger_atr_mult=ep.get("be_trigger_atr_mult", 999.0),
+                tp1_partial_pct=ep.get("tp1_partial_pct", 1.0),
+                tp2_partial_pct=ep.get("tp2_partial_pct", 0.0),
+                ema_exit_period=ep.get("ema_exit_period", 0),
+                hard_stop_mode=ep.get("hard_stop_mode", "trail"),
+                risk_pct=_PAPER_RISK_PCT,
+                max_bars=ep.get("max_bars", 0),
+            )
+            position = Position(
+                signal=sig, entry_price=pos_rec.entry_price,
+                entry_date=pos_rec.entry_date, size=int(pos_rec.remaining_shares),
+            )
+            position.bars_held     = pos_rec.bars_held or 0
+            position.sl_current    = pos_rec.sl_current or pos_rec.sl_price
+            position.highest_close = pos_rec.highest_close or pos_rec.entry_price
+            position.tp1_hit       = bool(pos_rec.tp1_hit)
+            position.tp2_hit       = bool(pos_rec.tp2_hit)
+
+            exit_sig = exit_policy.check(position, bar, ep)
+
+            # Persist mutated state (trail/BE moves)
+            pos_rec.sl_current     = position.sl_current
+            pos_rec.highest_close  = position.highest_close
+            pos_rec.tp1_hit        = position.tp1_hit
+            pos_rec.tp2_hit        = position.tp2_hit
+            pos_rec.bars_held      = (pos_rec.bars_held or 0) + 1
+
+            if exit_sig:
+                shares_out = (
+                    pos_rec.remaining_shares * exit_sig.partial_pct
+                    if exit_sig.partial else pos_rec.remaining_shares
+                )
+                pnl = (exit_sig.price - pos_rec.entry_price) * shares_out
+                db.add(PaperTradeModel(
+                    position_id=pos_rec.id,
+                    exit_date=today,
+                    exit_price=exit_sig.price,
+                    exit_reason=exit_sig.reason,
+                    shares=shares_out,
+                    pnl=pnl,
+                ))
+                pos_rec.pnl              = (pos_rec.pnl or 0.0) + pnl
+                pos_rec.remaining_shares -= shares_out
+                if pos_rec.remaining_shares <= 0 or not exit_sig.partial:
+                    pos_rec.status    = "closed"
+                    pos_rec.exit_date = today
+                    pos_rec.remaining_shares = 0.0
+                exits_count += 1
+                print(f"  EXIT  {pos_rec.symbol:<12} {exit_sig.reason:<14} pnl={pnl:>+.2f}")
+
+        db.commit()
+
+        # ── 2. Equity (realized) ─────────────────────────────────────────────
+        total_pnl = sum(t.pnl or 0.0 for t in db.query(PaperTradeModel).all())
+        equity    = _PAPER_CAPITAL + total_pnl
+
+        # ── 3. Open new positions ────────────────────────────────────────────
+        open_count = db.query(PaperPositionModel).filter_by(market=market, status="open").count()
+        strat_counts: dict[str, int] = {}
+        for p in db.query(PaperPositionModel).filter_by(market=market, status="open").all():
+            strat_counts[p.strategy] = strat_counts.get(p.strategy, 0) + 1
+
+        for sig_rec in new_signals:
+            if open_count >= _PAPER_MAX_OPEN:
+                break
+            if strat_counts.get(sig_rec.strategy, 0) >= _PAPER_MAX_PER_STRATEGY:
+                continue
+            bar = bars.get(sig_rec.symbol)
+            if bar is None:
+                continue
+            sl_dist = sig_rec.entry_price - sig_rec.sl_price
+            if sl_dist <= 0:
+                continue
+            shares = (equity * _PAPER_RISK_PCT) / sl_dist
+            if shares < 0.01:
+                continue
+
+            active = (
+                db.query(ActiveStrategyModel)
+                .filter_by(id=sig_rec.source_active_id)
+                .first()
+            )
+            ep = dict(active.params) if active else {}
+            ep["atr_at_entry"] = sig_rec.atr_at_entry or sl_dist / 1.5
+
+            db.add(PaperPositionModel(
+                market=market, symbol=sig_rec.symbol,
+                strategy=sig_rec.strategy, regime=sig_rec.regime_at_signal,
+                entry_date=today, entry_price=sig_rec.entry_price,
+                sl_price=sig_rec.sl_price, sl_current=sig_rec.sl_price,
+                tp1_price=sig_rec.tp1_price, tp2_price=sig_rec.tp2_price,
+                shares=shares, remaining_shares=shares,
+                highest_close=sig_rec.entry_price,
+                tp1_hit=False, tp2_hit=False, bars_held=0,
+                exit_params=ep,
+                source_signal_id=sig_rec.id,
+                status="open", pnl=0.0,
+            ))
+            sig_rec.status = "opened"
+            open_count += 1
+            strat_counts[sig_rec.strategy] = strat_counts.get(sig_rec.strategy, 0) + 1
+            opened_count += 1
+            print(f"  OPEN  {sig_rec.symbol:<12} {sig_rec.strategy:<22} entry={sig_rec.entry_price:.4f}  shares={shares:.2f}")
+
+        db.commit()
+    finally:
+        db.close()
+
+    print(f"\n  Equity: {equity:,.2f}  |  Opened: {opened_count}  |  Exits: {exits_count}")
+
+
+def cmd_scan(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Daily scan: generate signals from active roster for current regime."""
+    import strategies  # noqa: F401
+    from core.registry import StrategyRegistry
+    from core.regime import label_regime
+    from validation.backtest import _precompute_indicators
+    from db.models import ActiveStrategyModel, ScanSignalModel, SessionLocal
+
+    market = adapter.market_id
+    today  = date.today()
+    start  = today - timedelta(days=365)  # 250+ bars for SMA200 warmup
+
+    # 1. Current regime from latest benchmark bar
+    bm_close = _fetch_benchmark(adapter, start, today)
+    if bm_close is None:
+        print("  ERROR: no benchmark data — cannot determine regime.")
+        return
+    regime_series  = label_regime(bm_close["_bm_close"])
+    current_regime = str(regime_series.iloc[-1])
+    print(f"\n  Scan date: {today}  |  Regime: {current_regime.upper()}")
+
+    # 2. Active roster — only pairs matching current regime
+    db = SessionLocal()
+    try:
+        active_rows = (
+            db.query(ActiveStrategyModel)
+            .filter_by(market=market, status="active")
+            .all()
+        )
+    finally:
+        db.close()
+
+    matching = [r for r in active_rows if r.regime == current_regime]
+    if not matching:
+        print(f"  No active strategies for regime={current_regime}.")
+        return
+    print(f"  Active pairs in scope: {len(matching)}")
+
+    # 3. Fetch OHLCV + precompute indicators
+    universe = adapter.universe(today)
+    print(f"  Fetching {len(universe)} symbols...", flush=True)
+    bulk = adapter.ohlcv_bulk(universe, start, today)
+
+    all_dfs: dict[str, "pd.DataFrame"] = {}
+    for symbol in universe:
+        df = bulk.get(symbol, pd.DataFrame())
+        if df.empty or len(df) < 60:
+            continue
+        df = _attach_benchmark(df, bm_close)
+        df.attrs = {"symbol": symbol, "market": market}
+        df = _precompute_indicators(df)
+        df.attrs = {"symbol": symbol, "market": market}
+        all_dfs[symbol] = df
+
+    if not all_dfs:
+        print("  No symbol data loaded.")
+        return
+    print(f"  {len(all_dfs)}/{len(universe)} symbols ready.")
+
+    # 4. Run scan for each active pair
+    strategies_map = StrategyRegistry.for_market(market)
+    new_signals: list[dict] = []
+
+    for active in matching:
+        strategy_cls = strategies_map.get(active.strategy)
+        if strategy_cls is None:
+            logger.warning("Strategy %s not in registry — skipping.", active.strategy)
+            continue
+
+        strategy_obj = strategy_cls()
+        params = {**strategy_obj.default_params, **active.params}
+        tp2_off = params.get("tp2_atr_mult", 999.0) >= 900
+
+        for symbol, df in all_dfs.items():
+            try:
+                sigs = strategy_obj.scan(df, params)
+            except Exception as exc:
+                logger.debug("scan error %s/%s: %s", active.strategy, symbol, exc)
+                continue
+            for sig in sigs:
+                rvol_val = float(df["_rvol"].iloc[-1]) if "_rvol" in df.columns else None
+                new_signals.append({
+                    "market":            market,
+                    "scan_date":         today,
+                    "symbol":            symbol,
+                    "strategy":          active.strategy,
+                    "regime_at_signal":  current_regime,
+                    "direction":         sig.direction,
+                    "entry_price":       sig.entry,
+                    "sl_price":          sig.sl,
+                    "tp1_price":         sig.tp1,
+                    "tp2_price":         None if tp2_off else sig.tp2,
+                    "atr_at_entry":      sig.atr,
+                    "rvol_at_entry":     rvol_val,
+                    "source_active_id":  active.id,
+                    "status":            "new",
+                })
+
+    # 5. Upsert (idempotent on market+scan_date+symbol+strategy)
+    db = SessionLocal()
+    try:
+        inserted = 0
+        updated  = 0
+        for s in new_signals:
+            existing = (
+                db.query(ScanSignalModel)
+                .filter_by(
+                    market=s["market"], scan_date=s["scan_date"],
+                    symbol=s["symbol"],  strategy=s["strategy"],
+                )
+                .first()
+            )
+            if existing:
+                for k, v in s.items():
+                    setattr(existing, k, v)
+                updated += 1
+            else:
+                db.add(ScanSignalModel(**s))
+                inserted += 1
+        db.commit()
+    finally:
+        db.close()
+
+    W = 60
+    print(f"\n  {'='*W}")
+    print(f"  Signals: {len(new_signals)} total  ({inserted} new, {updated} updated)")
+    if new_signals:
+        print(f"  {'Symbol':<12} {'Strategy':<22} {'Entry':>9} {'SL':>9} {'TP1':>9}")
+        print(f"  {'-'*W}")
+        for s in sorted(new_signals, key=lambda x: (x["strategy"], x["symbol"])):
+            print(
+                f"  {s['symbol']:<12} {s['strategy']:<22} "
+                f"{s['entry_price']:>9.4f} {s['sl_price']:>9.4f} {s['tp1_price']:>9.4f}"
+            )
+    print(f"  {'='*W}\n")
+
+
+def cmd_promote(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Interactive picker: promote optimised pairs to ActiveStrategyModel."""
+    from datetime import date as _date
+    from db.models import ActiveStrategyModel, RegimeOptimiseModel, SessionLocal
+
+    market = adapter.market_id
+    today = _date.today()
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(RegimeOptimiseModel)
+            .filter_by(market=market)
+            .order_by(RegimeOptimiseModel.strategy, RegimeOptimiseModel.regime)
+            .all()
+        )
+        if not rows:
+            print(f"  No optimise results for {market}. Run `optimise` first.")
+            return
+
+        W = 72
+        print(f"\n{'='*W}")
+        print(f"  PROMOTE — {market.upper()}  ({today})")
+        print(f"{'='*W}")
+        print(f"  {'#':>3}  {'Strategy':<22} {'Regime':<12} {'IS Cal':>7} {'OOS Cal':>8} {'OOS':>5}  Combo")
+        print(f"  {'-'*W}")
+        for i, r in enumerate(rows, 1):
+            verdict = "PASS" if r.oos_pass else "fail"
+            print(
+                f"  {i:>3}.  {r.strategy:<22} {r.regime:<12} "
+                f"{(r.is_calmar or 0):>7.2f} {(r.oos_calmar or 0):>8.2f} "
+                f"{verdict:>5}  {r.best_combo or ''}"
+            )
+        print(f"  {'-'*W}\n")
+
+        raw = input("  Numbers to promote (e.g. 1 3, blank=none): ").strip()
+        if not raw:
+            print("  Nothing promoted.")
+            return
+
+        indices = []
+        for token in raw.replace(",", " ").split():
+            try:
+                idx = int(token) - 1
+                if 0 <= idx < len(rows):
+                    indices.append(idx)
+            except ValueError:
+                pass
+
+        if not indices:
+            print("  No valid selections.")
+            return
+
+        promoted = 0
+        for idx in indices:
+            r = rows[idx]
+            existing = (
+                db.query(ActiveStrategyModel)
+                .filter_by(market=market, strategy=r.strategy, regime=r.regime, status="active")
+                .all()
+            )
+            for old in existing:
+                old.retired_at = today
+                old.status = "retired"
+
+            db.add(ActiveStrategyModel(
+                market=market,
+                strategy=r.strategy,
+                regime=r.regime,
+                params=r.params,
+                promoted_at=today,
+                status="active",
+                source_combo=r.best_combo,
+            ))
+            promoted += 1
+            print(f"  + promoted  {r.strategy} | {r.regime}")
+
+        db.commit()
+        print(f"\n  {promoted} pair(s) promoted. Run `active` to verify.")
+    finally:
+        db.close()
+
+
+def cmd_active(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Print current active roster for market."""
+    from db.models import ActiveStrategyModel, SessionLocal
+
+    market = adapter.market_id
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(ActiveStrategyModel)
+            .filter_by(market=market, status="active")
+            .order_by(ActiveStrategyModel.strategy, ActiveStrategyModel.regime)
+            .all()
+        )
+        W = 72
+        print(f"\n{'='*W}")
+        print(f"  ACTIVE ROSTER — {market.upper()}")
+        print(f"{'='*W}")
+        if not rows:
+            print("  (empty — run `promote` to add pairs)")
+        else:
+            print(f"  {'#':>3}  {'Strategy':<22} {'Regime':<12} {'Promoted':<12}  Combo")
+            print(f"  {'-'*W}")
+            for i, r in enumerate(rows, 1):
+                print(
+                    f"  {i:>3}.  {r.strategy:<22} {r.regime:<12} "
+                    f"{str(r.promoted_at):<12}  {r.source_combo or ''}"
+                )
+        print(f"{'='*W}\n")
+    finally:
+        db.close()
+
+
+def cmd_history(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Print recent active-roster sync history for market."""
+    from db.models import PipelineLog, SessionLocal
+
+    market = adapter.market_id
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(PipelineLog)
+            .filter_by(market=market, stage="active-sync")
+            .order_by(PipelineLog.logged_at.desc())
+            .limit(10)
+            .all()
+        )
+    finally:
+        db.close()
+
+    W = 88
+    print(f"\n{'='*W}")
+    print(f"  ACTIVE HISTORY — {market.upper()}")
+    print(f"{'='*W}")
+    if not rows:
+        print("  (empty — run `optimise` first)")
+        print(f"{'='*W}\n")
+        return
+
+    for row in rows:
+        details = row.details or {}
+        added = details.get("added") or []
+        changed = details.get("changed") or []
+        retired = details.get("retired") or []
+        active_count = details.get("active_count", 0)
+        print(
+            f"  {row.logged_at:%Y-%m-%d %H:%M}  "
+            f"active={active_count} +{len(added)} ~{len(changed)} -{len(retired)}"
+        )
+        for item in added:
+            print(f"    + {item['strategy']}|{item['regime']} -> {item['new_combo'] or 'n/a'}")
+        for item in changed:
+            print(
+                f"    ~ {item['strategy']}|{item['regime']} "
+                f"{item['old_combo'] or 'n/a'} -> {item['new_combo'] or 'n/a'}"
+            )
+        for item in retired:
+            print(f"    - {item['strategy']}|{item['regime']} {item['old_combo'] or 'n/a'}")
+        print("  " + "-" * (W - 2))
+    print(f"{'='*W}\n")
+
+
+def cmd_optimise_full(adapter: MarketAdapter, args: argparse.Namespace) -> None:
+    """Optimise pipeline: regime → optimise → stability → chart-export."""
+    _banner = lambda n, t: print(f"\n{'='*60}\n  STEP {n}/4 — {t}\n{'='*60}")
+    _banner(1, "regime");          cmd_regime(adapter, args)
+    _banner(2, "optimise");        cmd_optimise_regime(adapter, args)
+    _banner(3, "stability");       cmd_stability_report(adapter, args)
+    _banner(4, "chart-export");    cmd_chart_export(adapter, args)
+
+
 def cmd_run_all(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     """Full pipeline: regime → optimise → stability → report → chart-export."""
     _banner = lambda n, t: print(f"\n{'='*60}\n  STEP {n}/5 — {t}\n{'='*60}")
@@ -2655,6 +3230,7 @@ def run(adapter: MarketAdapter, command: str, args: argparse.Namespace) -> None:
     dispatch = {
         "run-all":        lambda: cmd_run_all(adapter, args),
         "regime":         lambda: cmd_regime(adapter, args),
+        "research":       lambda: cmd_optimise_full(adapter, args),
         "optimise":       lambda: cmd_optimise_regime(adapter, args),
         "stability":      lambda: cmd_stability_report(adapter, args),
         "report":         lambda: cmd_report(adapter, args),
@@ -2665,6 +3241,11 @@ def run(adapter: MarketAdapter, command: str, args: argparse.Namespace) -> None:
         "chart-export":   lambda: cmd_chart_export(adapter, args),
         "intraday-entry-test":       lambda: cmd_intraday_entry_test(adapter, args),
         "intraday-fakeout-study":    lambda: cmd_intraday_fakeout_study(adapter, args),
+        "paper-update":              lambda: cmd_paper_update(adapter, args),
+        "scan":                      lambda: cmd_scan(adapter, args),
+        "promote":                   lambda: cmd_promote(adapter, args),
+        "active":                    lambda: cmd_active(adapter, args),
+        "history":                   lambda: cmd_history(adapter, args),
     }
     if command in dispatch:
         dispatch[command]()
