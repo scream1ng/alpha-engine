@@ -25,7 +25,7 @@ SYMBOL_RE = re.compile(r"^[A-Za-z0-9.^=_-]{1,32}$")
 from db.models import (
     init_db, SessionLocal,
     ActiveStrategyModel, ScanSignalModel,
-    PaperPositionModel, PaperTradeModel, PipelineLog,
+    PaperPositionModel, PaperTradeModel, PipelineLog, RegimeLabelModel,
 )
 
 _PAPER_CAPITAL = 100_000.0
@@ -116,6 +116,46 @@ def _round_float(value: Any) -> float:
     return round(float(value), 6)
 
 
+def _regime_periods(rows: list[RegimeLabelModel]) -> list[dict[str, Any]]:
+    ordered = sorted(rows, key=lambda row: row.date)
+    if not ordered:
+        return []
+
+    periods: list[dict[str, Any]] = []
+    current = ordered[0].regime
+    start = ordered[0].date
+    end = ordered[0].date
+    bars = 1
+    counts: dict[str, int] = {}
+
+    def flush(regime: str, start_date: date, end_date: date, bar_count: int) -> None:
+        idx = counts.get(regime, 0) + 1
+        counts[regime] = idx
+        periods.append(
+            {
+                "label": f"{regime[:2]}{idx}",
+                "regime": regime,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "bars": bar_count,
+            }
+        )
+
+    for row in ordered[1:]:
+        if row.regime == current:
+            end = row.date
+            bars += 1
+            continue
+        flush(current, start, end, bars)
+        current = row.regime
+        start = row.date
+        end = row.date
+        bars = 1
+
+    flush(current, start, end, bars)
+    return periods
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -181,6 +221,20 @@ def active_roster(market: str = Query(..., min_length=1, max_length=16)) -> list
             }
             for r in rows
         ]
+    finally:
+        db.close()
+
+
+@app.get("/api/regime-periods")
+def regime_periods(market: str = Query(..., min_length=1, max_length=16)) -> dict[str, Any]:
+    m = market.strip().lower()
+    db = SessionLocal()
+    try:
+        rows = db.query(RegimeLabelModel).filter_by(market=m).all()
+        return {
+            "market": market.strip().upper(),
+            "regime_periods": _regime_periods(rows),
+        }
     finally:
         db.close()
 

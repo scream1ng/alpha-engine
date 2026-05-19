@@ -1384,6 +1384,24 @@ def _build_regime_episodes(label_rows: list) -> dict[str, list[dict]]:
     return episodes
 
 
+def _flatten_regime_periods(label_rows: list) -> list[dict]:
+    periods: list[dict] = []
+    episodes = _build_regime_episodes(label_rows)
+    for rows in episodes.values():
+        for row in rows:
+            start = row["start_date"]
+            end = row["end_date"]
+            periods.append({
+                "label": row["label"],
+                "regime": row["regime"],
+                "start_date": start.isoformat() if hasattr(start, "isoformat") else str(start),
+                "end_date": end.isoformat() if hasattr(end, "isoformat") else str(end),
+                "bars": int(row["bars"]),
+            })
+    periods.sort(key=lambda row: row["start_date"])
+    return periods
+
+
 def _episode_rows_from_trades(
     trades: list[dict],
     episodes: list[dict],
@@ -2622,12 +2640,14 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         yr: {r: round(c / sum(counts.values()), 4) for r, c in counts.items()}
         for yr, counts in _ryc.items()
     }
+    regime_periods = _flatten_regime_periods(label_rows)
 
     compact_output = {
         "generated":      str(today),
         "market":         market_key,
         "current_regime": current_regime,
         "regime_map":     regime_map,
+        "regime_periods": regime_periods,
         "regime_year_weights": regime_year_weights,
         "strategies":     strategies_out,
     }

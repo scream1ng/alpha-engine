@@ -7,6 +7,7 @@ def _market_payload(market: str, generated: str) -> dict:
         "market": market,
         "current_regime": "uptrend",
         "regime_map": {},
+        "regime_periods": [],
         "strategies": [],
         "ohlcv": {},
     }

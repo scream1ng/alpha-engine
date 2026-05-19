@@ -169,6 +169,33 @@ tr:hover td{background:var(--bg2)}
 .perf-table .live-row .pt-name::after{content:'LIVE';font-size:9px;font-weight:700;letter-spacing:.5px;color:var(--green);border:1px solid var(--green);border-radius:3px;padding:1px 5px;margin-left:7px;vertical-align:middle}
 .perf-table .dim-row td{opacity:.4}
 
+/* ── OVERVIEW STORY ─────────────────────────────── */
+.ov-story{max-width:1200px;margin:0 auto;width:100%;padding:18px 20px 0;display:flex;flex-direction:column;gap:12px}
+.story-card .card-body{padding:14px}
+.story-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.story-copy{display:flex;flex-direction:column;gap:4px;max-width:640px}
+.story-title{font-size:18px;font-weight:700;letter-spacing:-.02em}
+.story-sub{font-size:12px;color:var(--text2);line-height:1.55}
+.story-metrics{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px;flex:1;min-width:320px}
+.story-metric{border:1px solid var(--border);border-radius:10px;background:linear-gradient(180deg,#fff 0%,#f8fafc 100%);padding:10px 12px}
+.story-metric .lbl{font-size:10px;font-weight:700;letter-spacing:.55px;text-transform:uppercase;color:var(--text3);margin-bottom:4px}
+.story-metric .val{font-size:18px;font-weight:700;font-family:monospace}
+.story-metric .sub{font-size:11px;color:var(--text3);margin-top:2px}
+.story-chart-shell{border:1px solid var(--border);border-radius:10px;background:linear-gradient(180deg,#fff 0%,#fbfdff 100%);overflow:hidden}
+.story-chart{width:100%;display:block}
+.story-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px}
+.story-note{font-size:11px;color:var(--text3)}
+.regime-legend{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.regime-key{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text2)}
+.regime-key .sw{width:12px;height:12px;border-radius:3px;border:1px solid var(--border)}
+.strip-card .card-body{padding:12px 14px 14px}
+.regime-strip-wrap{display:flex;flex-direction:column;gap:8px}
+.regime-strip-svg{width:100%;display:block}
+.regime-strip-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.regime-strip-note{font-size:11px;color:var(--text3)}
+.regime-current{font-size:11px;color:var(--text2)}
+.regime-current strong{text-transform:uppercase}
+
 /* ── CHART PAGE ───────────────────────────────────── */
 #chart-page{display:flex;flex-direction:column;height:calc(100dvh - 48px);overflow:hidden}
 #chart-stats{padding:6px 14px;border-bottom:1px solid var(--border);background:var(--bg2);display:flex;gap:14px;flex-wrap:wrap;flex-shrink:0}
@@ -227,9 +254,13 @@ tr:hover td{background:var(--bg2)}
   .learn-chart-shell{max-width:none}
   .learn-step-copy .text{max-width:none}
   .learn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .story-metrics{grid-template-columns:repeat(2,minmax(140px,1fr));min-width:0;width:100%}
 }
 @media (max-width: 640px){
   .learn-grid{grid-template-columns:1fr}
+  .ov-story{padding-top:14px}
+  .story-title{font-size:16px}
+  .story-metrics{grid-template-columns:1fr 1fr}
 }
 
 /* ── LIVE PAGE ─────────────────────────────────────── */
@@ -425,6 +456,7 @@ function setActiveMarket(marketKey, resetToOverview = true) {
 
 async function loadData() {
   D = normalizePayload(await loadSnapshotPayload());
+  await hydrateRegimePeriods();
   await loadFixedLearningData();
   const storedMarket = (() => {
     try { return localStorage.getItem(MARKET_STORAGE_KEY); } catch (_) { return null; }
@@ -481,6 +513,21 @@ async function fetchApiJson(path) {
     }
   }
   throw lastErr || new Error('API unavailable');
+}
+
+async function hydrateRegimePeriods() {
+  if (!D || !D.markets) return;
+  const keys = Object.keys(D.markets);
+  await Promise.all(keys.map(async key => {
+    const market = D.markets[key];
+    if (Array.isArray(market.regime_periods) && market.regime_periods.length) return;
+    try {
+      const payload = await fetchApiJson('/api/regime-periods?market=' + encodeURIComponent(key));
+      if (Array.isArray(payload && payload.regime_periods) && payload.regime_periods.length) {
+        market.regime_periods = payload.regime_periods;
+      }
+    } catch (_) {}
+  }));
 }
 
 async function loadFixedLearningData() {
@@ -604,6 +651,252 @@ const pill = r => {
 };
 const sLabel = id => id ? id.replace(/_/g, ' ') : '—';
 
+const money = n => n == null ? '—' : '$' + fmt(n, 0);
+
+function isoDate(ymd) {
+  return new Date(ymd + 'T00:00:00Z');
+}
+
+function fmtShortDate(ymd) {
+  const d = isoDate(ymd);
+  return d.toLocaleDateString(undefined, {day:'2-digit', month:'short', year:'numeric', timeZone:'UTC'});
+}
+
+function dayDiff(start, end) {
+  return Math.round((isoDate(end) - isoDate(start)) / 86400000);
+}
+
+function addDays(ymd, days) {
+  const d = isoDate(ymd);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function collectPassingEntries(rm, optLookup, allIds) {
+  const REGIMES = ['uptrend','choppy','downtrend'];
+  const regimeRank = Object.fromEntries(REGIMES.map((reg, idx) => [reg, idx]));
+  const passEntries = [];
+  allIds.forEach(id => {
+    REGIMES.forEach(reg => {
+      const base = rm[id + '|' + reg];
+      if (base && base.pass) passEntries.push({id, reg, base, opt: optLookup[id + '|' + reg] || null});
+    });
+  });
+  passEntries.sort((a, b) => {
+    const ar = regimeRank[a.reg] ?? 99;
+    const br = regimeRank[b.reg] ?? 99;
+    if (ar !== br) return ar - br;
+    const ac = a.opt ? a.opt.calmar : a.base.calmar;
+    const bc = b.opt ? b.opt.calmar : b.base.calmar;
+    if ((bc || 0) !== (ac || 0)) return (bc || 0) - (ac || 0);
+    return sLabel(a.id).localeCompare(sLabel(b.id));
+  });
+  return passEntries;
+}
+
+function buildOverviewPortfolioModel(data, passEntries) {
+  const periods = Array.isArray(data && data.regime_periods)
+    ? data.regime_periods.filter(p => p && p.start_date && p.end_date && p.regime)
+    : [];
+  const tradeEntries = passEntries.filter(entry => entry.opt && Array.isArray(entry.opt.symbols));
+  if (!periods.length || !tradeEntries.length) return null;
+
+  const strategyCount = tradeEntries.length;
+  const pnlByDate = {};
+  tradeEntries.forEach(entry => {
+    (entry.opt.symbols || []).forEach(sym => {
+      (sym.trades || []).forEach(trade => {
+        const key = trade.exit_date || trade.entry_date;
+        pnlByDate[key] = (pnlByDate[key] || 0) + ((+trade.pnl || 0) / strategyCount);
+      });
+    });
+  });
+
+  const start = periods[0].start_date;
+  const end = periods[periods.length - 1].end_date;
+  const totalDays = Math.max(1, dayDiff(start, end));
+  const points = [];
+  let cursor = start;
+  let equity = CAPITAL;
+  let peak = CAPITAL;
+  let maxDrawdown = 0;
+
+  while (cursor <= end) {
+    equity += pnlByDate[cursor] || 0;
+    peak = Math.max(peak, equity);
+    const drawdownPct = peak > 0 ? ((equity / peak) - 1) * 100 : 0;
+    maxDrawdown = Math.min(maxDrawdown, drawdownPct);
+    points.push({date: cursor, equity, drawdownPct});
+    cursor = addDays(cursor, 1);
+  }
+
+  const finalEquity = points.length ? points[points.length - 1].equity : CAPITAL;
+  const totalReturnPct = ((finalEquity / CAPITAL) - 1) * 100;
+  const years = (totalDays + 1) / 365.25;
+  const cagrPct = years > 0 ? ((Math.pow(finalEquity / CAPITAL, 1 / years) - 1) * 100) : 0;
+
+  return {
+    start,
+    end,
+    periods,
+    points,
+    strategyCount,
+    finalEquity,
+    totalReturnPct,
+    cagrPct,
+    maxDrawdownPct: maxDrawdown,
+  };
+}
+
+function buildOverviewSummarySection(data, passEntries, cur) {
+  const model = buildOverviewPortfolioModel(data, passEntries);
+  if (!model) return '';
+
+  const W = 1100;
+  const H = 250;
+  const M = {top: 16, right: 18, bottom: 28, left: 60};
+  const innerW = W - M.left - M.right;
+  const innerH = H - M.top - M.bottom;
+  const minEq = Math.min(...model.points.map(p => p.equity));
+  const maxEq = Math.max(...model.points.map(p => p.equity));
+  const span = Math.max(1, maxEq - minEq);
+  const yMin = minEq - span * 0.08;
+  const yMax = maxEq + span * 0.08;
+  const totalDays = Math.max(1, dayDiff(model.start, model.end));
+  const xAt = ymd => M.left + (dayDiff(model.start, ymd) / totalDays) * innerW;
+  const yAt = eq => M.top + ((yMax - eq) / Math.max(1, yMax - yMin)) * innerH;
+
+  const bandFill = {
+    uptrend: 'rgba(26,127,55,0.10)',
+    choppy: 'rgba(154,103,0,0.11)',
+    downtrend: 'rgba(207,34,46,0.10)',
+  };
+  const bandStroke = {
+    uptrend: 'rgba(26,127,55,0.12)',
+    choppy: 'rgba(154,103,0,0.13)',
+    downtrend: 'rgba(207,34,46,0.12)',
+  };
+
+  const bandRects = model.periods.map(period => {
+    const x1 = xAt(period.start_date);
+    const x2 = xAt(period.end_date) + (innerW / totalDays);
+    return '<rect x="' + x1.toFixed(2) + '" y="' + M.top + '" width="' + Math.max(1, x2 - x1).toFixed(2) + '" height="' + innerH + '" fill="' + bandFill[period.regime] + '" stroke="' + bandStroke[period.regime] + '" stroke-width="0.5"></rect>';
+  }).join('');
+
+  const linePath = model.points.map((p, idx) => (idx ? 'L' : 'M') + xAt(p.date).toFixed(2) + ' ' + yAt(p.equity).toFixed(2)).join(' ');
+  const areaPath = linePath + ' L ' + xAt(model.points[model.points.length - 1].date).toFixed(2) + ' ' + (M.top + innerH).toFixed(2) + ' L ' + xAt(model.points[0].date).toFixed(2) + ' ' + (M.top + innerH).toFixed(2) + ' Z';
+
+  const yearMarks = [];
+  const seenYears = new Set();
+  model.points.forEach((point, idx) => {
+    const year = point.date.slice(0, 4);
+    if ((idx === 0 || point.date.slice(5) === '01-01') && !seenYears.has(year)) {
+      seenYears.add(year);
+      yearMarks.push({year, date: point.date, x: xAt(point.date)});
+    }
+  });
+  const yearGrid = yearMarks.map(mark =>
+    '<line x1="' + mark.x.toFixed(2) + '" y1="' + M.top + '" x2="' + mark.x.toFixed(2) + '" y2="' + (M.top + innerH) + '" stroke="rgba(140,149,159,0.22)" stroke-dasharray="3 4"></line>' +
+    '<text x="' + mark.x.toFixed(2) + '" y="' + (H - 8) + '" font-size="11" fill="#656d76" text-anchor="middle">' + mark.year + '</text>'
+  ).join('');
+
+  const yTicks = [yMin, (yMin + yMax) / 2, yMax];
+  const yGrid = yTicks.map(value => {
+    const y = yAt(value);
+    return '<line x1="' + M.left + '" y1="' + y.toFixed(2) + '" x2="' + (M.left + innerW) + '" y2="' + y.toFixed(2) + '" stroke="rgba(208,215,222,0.65)"></line>' +
+      '<text x="' + (M.left - 10) + '" y="' + (y + 4).toFixed(2) + '" font-size="11" fill="#656d76" text-anchor="end">' + money(value) + '</text>';
+  }).join('');
+
+  const lastPoint = model.points[model.points.length - 1];
+  const lastX = xAt(lastPoint.date);
+  const lastY = yAt(lastPoint.equity);
+  const regimeCounts = model.periods.reduce((acc, period) => {
+    acc[period.regime] = (acc[period.regime] || 0) + 1;
+    return acc;
+  }, {});
+
+  const stripW = 1100;
+  const stripH = 54;
+  const stripX = ymd => 14 + (dayDiff(model.start, ymd) / totalDays) * (stripW - 28);
+  const currentPeriod = model.periods[model.periods.length - 1];
+  const stripRects = model.periods.map(period => {
+    const x1 = stripX(period.start_date);
+    const x2 = stripX(period.end_date) + ((stripW - 28) / totalDays);
+    const highlight = period === currentPeriod;
+    const fill = bandFill[period.regime].replace('0.10', '0.88').replace('0.11', '0.88');
+    const stroke = bandStroke[period.regime].replace('0.12', '0.55').replace('0.13', '0.55');
+    return '<g>' +
+      '<rect x="' + x1.toFixed(2) + '" y="8" width="' + Math.max(2, x2 - x1).toFixed(2) + '" height="18" rx="6" fill="' + fill + '" stroke="' + stroke + '"></rect>' +
+      (highlight ? '<rect x="' + x1.toFixed(2) + '" y="5" width="' + Math.max(2, x2 - x1).toFixed(2) + '" height="24" rx="8" fill="none" stroke="rgba(9,105,218,0.45)" stroke-width="2"></rect>' : '') +
+      '</g>';
+  }).join('');
+  const stripYears = yearMarks.map(mark =>
+    '<text x="' + stripX(mark.date).toFixed(2) + '" y="46" font-size="11" fill="#656d76" text-anchor="middle">' + mark.year + '</text>'
+  ).join('');
+
+  return (
+    '<div class="ov-story">' +
+      '<div class="card story-card">' +
+        '<div class="card-hdr">Engine Equity Potential</div>' +
+        '<div class="card-body">' +
+          '<div class="story-top">' +
+            '<div class="story-copy">' +
+              '<div class="story-title">5-year realised equity with regime context</div>' +
+              '<div class="story-sub">Equal-capital sleeves across all passing strategy-regime pairs. Equity moves only when trades close, so the line shows realised compounding rather than mark-to-market noise.</div>' +
+            '</div>' +
+            '<div class="story-metrics">' +
+              '<div class="story-metric"><div class="lbl">Final Equity</div><div class="val">' + money(model.finalEquity) + '</div><div class="sub">' + pct(model.totalReturnPct, 1) + ' vs start</div></div>' +
+              '<div class="story-metric"><div class="lbl">CAGR</div><div class="val ' + clr(model.cagrPct) + '">' + pct(model.cagrPct, 1) + '</div><div class="sub">' + fmtShortDate(model.start) + ' to ' + fmtShortDate(model.end) + '</div></div>' +
+              '<div class="story-metric"><div class="lbl">Max Drawdown</div><div class="val neg">' + pct(model.maxDrawdownPct, 1) + '</div><div class="sub">Peak-to-trough realised equity</div></div>' +
+              '<div class="story-metric"><div class="lbl">Strategy Sleeves</div><div class="val">' + model.strategyCount + '</div><div class="sub">' + (regimeCounts.uptrend || 0) + ' up · ' + (regimeCounts.choppy || 0) + ' choppy · ' + (regimeCounts.downtrend || 0) + ' down</div></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="story-chart-shell">' +
+            '<svg class="story-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-label="5-year realised equity curve">' +
+              '<defs>' +
+                '<linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">' +
+                  '<stop offset="0%" stop-color="rgba(9,105,218,0.24)"></stop>' +
+                  '<stop offset="100%" stop-color="rgba(9,105,218,0.02)"></stop>' +
+                '</linearGradient>' +
+              '</defs>' +
+              bandRects +
+              yGrid +
+              yearGrid +
+              '<path d="' + areaPath + '" fill="url(#equityFill)"></path>' +
+              '<path d="' + linePath + '" fill="none" stroke="#0969da" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>' +
+              '<circle cx="' + lastX.toFixed(2) + '" cy="' + lastY.toFixed(2) + '" r="4.5" fill="#0969da" stroke="#fff" stroke-width="2"></circle>' +
+              '<text x="' + Math.min(W - 18, lastX + 10).toFixed(2) + '" y="' + Math.max(18, lastY - 10).toFixed(2) + '" font-size="11" fill="#1f2328">' + money(lastPoint.equity) + '</text>' +
+            '</svg>' +
+          '</div>' +
+          '<div class="story-foot">' +
+            '<div class="regime-legend">' +
+              '<span class="regime-key"><span class="sw" style="background:rgba(26,127,55,0.12);border-color:#82cfaa"></span>Uptrend</span>' +
+              '<span class="regime-key"><span class="sw" style="background:rgba(154,103,0,0.12);border-color:#d4a72c"></span>Choppy</span>' +
+              '<span class="regime-key"><span class="sw" style="background:rgba(207,34,46,0.12);border-color:#ffb8b0"></span>Downtrend</span>' +
+            '</div>' +
+            '<div class="story-note">Background bands use exact saved benchmark regime periods from the research run.</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card strip-card">' +
+        '<div class="card-hdr">Market Regime Timeline</div>' +
+        '<div class="card-body">' +
+          '<div class="regime-strip-wrap">' +
+            '<svg class="regime-strip-svg" viewBox="0 0 ' + stripW + ' ' + stripH + '" preserveAspectRatio="none" aria-label="5-year market regime timeline">' +
+              stripRects +
+              stripYears +
+            '</svg>' +
+            '<div class="regime-strip-meta">' +
+              '<div class="regime-strip-note">Each segment is one continuous saved benchmark regime window.</div>' +
+              '<div class="regime-current">Current regime: <strong>' + (cur || '—') + '</strong> · ' + model.periods.length + ' total regime periods</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
 /* ── OVERVIEW ────────────────────────────────────── */
 function renderOverview() {
   const data   = currentData();
@@ -613,6 +906,7 @@ function renderOverview() {
   const allIds = [...new Set(Object.keys(rm).map(k => k.split('|')[0]).filter(id => !DISABLED_STRATEGY_IDS.has(id)))].sort();
   const optLookup = {};
   strats.forEach(s => { optLookup[s.id + '|' + s.regime] = s; });
+  const passEntries = collectPassingEntries(rm, optLookup, allIds);
 
   if (!allIds.length) { renderOverviewFallback(strats, cur); return; }
 
@@ -666,10 +960,12 @@ function renderOverview() {
       '</div>';
   });
 
-  const tableSection = buildPerfTable(rm, optLookup, allIds, cur);
+  const summarySection = buildOverviewSummarySection(data, passEntries, cur);
+  const tableSection = buildPerfTable(rm, optLookup, allIds, cur, passEntries);
 
   document.getElementById('page').innerHTML =
     '<div class="ov-bar"><div class="ov-inner"><h2>Regime Overview</h2>' + (cur ? '<span class="sub">Current regime: <strong>' + cur + '</strong></span>' : '') + '</div></div>' +
+    summarySection +
     '<div style="padding-top:20px">' + tableSection + '</div>' +
     '<div class="ov-grid">' + cols + '</div>';
 }
@@ -748,27 +1044,8 @@ function optYearlyStats(opt) {
   return yearly;
 }
 
-function buildPerfTable(rm, optLookup, allIds, cur) {
-  const REGIMES = ['uptrend','choppy','downtrend'];
-  const passEntries = [];
-  allIds.forEach(id => {
-    REGIMES.forEach(reg => {
-      const base = rm[id+'|'+reg];
-      if (base && base.pass) {
-        passEntries.push({id, reg, base, opt: optLookup[id+'|'+reg]||null});
-      }
-    });
-  });
-  const regimeRank = Object.fromEntries(REGIMES.map((reg, idx) => [reg, idx]));
-  passEntries.sort((a, b) => {
-    const ar = regimeRank[a.reg] ?? 99;
-    const br = regimeRank[b.reg] ?? 99;
-    if (ar !== br) return ar - br;
-    const ac = a.opt ? a.opt.calmar : a.base.calmar;
-    const bc = b.opt ? b.opt.calmar : b.base.calmar;
-    if ((bc || 0) !== (ac || 0)) return (bc || 0) - (ac || 0);
-    return sLabel(a.id).localeCompare(sLabel(b.id));
-  });
+function buildPerfTable(rm, optLookup, allIds, cur, passEntriesOverride) {
+  const passEntries = Array.isArray(passEntriesOverride) ? [...passEntriesOverride] : collectPassingEntries(rm, optLookup, allIds);
   if (!passEntries.length) return '';
 
   const allYears = new Set();
