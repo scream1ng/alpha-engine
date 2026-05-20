@@ -3,7 +3,7 @@ import os
 from datetime import date, datetime
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Float,
-    Integer, JSON, String, Text, UniqueConstraint, ForeignKey, create_engine, func,
+    Integer, JSON, String, Text, UniqueConstraint, ForeignKey, create_engine, func, inspect, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -17,6 +17,32 @@ else:
 
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+_COMPAT_MIGRATIONS: dict[str, list[str]] = {
+    "strategy_params": [
+        "backtest_annual_return REAL",
+        "backtest_trade_count   INTEGER",
+        "backtest_avg_win       REAL",
+        "backtest_avg_loss      REAL",
+        "backtest_max_dd        REAL",
+        "yearly_summary         JSON",
+    ],
+    "regime_map": [
+        "calmar REAL",
+        "max_dd REAL",
+    ],
+    "research_runs": [
+        "markdown_path TEXT",
+    ],
+    "regime_optimise": [
+        "best_combo TEXT",
+    ],
+    "regime_entry": [
+        "calmar_market_close   REAL",
+        "calmar_limit_intraday REAL",
+        "calmar_limit_fakeout  REAL",
+    ],
+}
 
 
 class Base(DeclarativeBase):
@@ -300,50 +326,21 @@ def get_db() -> Session:
         db.close()
 
 
+def _apply_compat_migrations() -> None:
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        for table_name, column_defs in _COMPAT_MIGRATIONS.items():
+            if not inspector.has_table(table_name):
+                continue
+            existing = {col["name"] for col in inspector.get_columns(table_name)}
+            for col_def in column_defs:
+                col_name = col_def.split()[0]
+                if col_name in existing:
+                    continue
+                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_def}"))
+                existing.add(col_name)
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
-    if "sqlite" in DATABASE_URL:
-        from sqlalchemy import text
-        new_cols = [
-            "backtest_annual_return REAL",
-            "backtest_trade_count   INTEGER",
-            "backtest_avg_win       REAL",
-            "backtest_avg_loss      REAL",
-            "backtest_max_dd        REAL",
-            "yearly_summary         JSON",
-        ]
-        with engine.connect() as conn:
-            for col_def in new_cols:
-                try:
-                    conn.execute(text(f"ALTER TABLE strategy_params ADD COLUMN {col_def}"))
-                    conn.commit()
-                except Exception:
-                    pass  # column already exists
-            for col_def in ["calmar REAL", "max_dd REAL"]:
-                try:
-                    conn.execute(text(f"ALTER TABLE regime_map ADD COLUMN {col_def}"))
-                    conn.commit()
-                except Exception:
-                    pass  # column already exists
-            for col_def in ["markdown_path TEXT"]:
-                try:
-                    conn.execute(text(f"ALTER TABLE research_runs ADD COLUMN {col_def}"))
-                    conn.commit()
-                except Exception:
-                    pass  # column already exists
-            for col_def in ["best_combo TEXT"]:
-                try:
-                    conn.execute(text(f"ALTER TABLE regime_optimise ADD COLUMN {col_def}"))
-                    conn.commit()
-                except Exception:
-                    pass  # column already exists
-            for col_def in [
-                "calmar_market_close   REAL",
-                "calmar_limit_intraday REAL",
-                "calmar_limit_fakeout  REAL",
-            ]:
-                try:
-                    conn.execute(text(f"ALTER TABLE regime_entry ADD COLUMN {col_def}"))
-                    conn.commit()
-                except Exception:
-                    pass  # column already exists
+    _apply_compat_migrations()

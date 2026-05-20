@@ -24,24 +24,30 @@
   --dn-bg:#ffebe9;  --dn-bdr:#ffb8b0;  --dn-fg:#cf222e;
 }
 body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.skip-link{position:absolute;left:12px;top:-40px;padding:8px 12px;border-radius:8px;background:var(--accent);color:#fff;font-weight:700;text-decoration:none;z-index:10}
+.skip-link:focus-visible{top:12px}
 
 /* ── NAV ──────────────────────────────────────────── */
-#nav{border-bottom:1px solid var(--border);background:var(--bg);height:48px;flex-shrink:0}
-#nav-inner{max-width:1200px;margin:0 auto;padding:0 20px;height:48px;display:flex;align-items:center}
+#nav{border-bottom:1px solid var(--border);background:var(--bg);flex-shrink:0}
+#nav-inner{max-width:1200px;margin:0 auto;padding:0 20px;min-height:48px;display:flex;align-items:center;gap:16px}
 #nav-logo{font-size:13px;font-weight:700;color:var(--text);letter-spacing:.5px;user-select:none;flex-shrink:0;display:flex;align-items:center;gap:6px}
 #nav-logo .alpha-sym{font-size:16px;color:var(--accent);font-weight:900;letter-spacing:-1px}
-#nav-tabs{flex:1;display:flex;justify-content:center;align-items:center}
+#nav-tabs{flex:1;display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap}
 .nav-tab{padding:0 16px;height:48px;display:flex;align-items:center;font-size:13px;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;text-decoration:none;transition:color .15s;white-space:nowrap}
 .nav-tab:hover{color:var(--text)}
 .nav-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
 .nav-tab.dim{color:var(--text3);cursor:default;pointer-events:none}
-#nav-right{flex-shrink:0;display:flex;align-items:center;gap:12px;font-size:12px;color:var(--text3)}
+#subnav{border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+#subnav-inner{max-width:1200px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.subnav-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--text3)}
+.subnav-meta .meta-label{font-weight:700;color:var(--text2);letter-spacing:.4px;text-transform:uppercase;font-size:10px}
+.meta-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--border);border-radius:999px;background:var(--bg);min-height:30px}
 .regime-badge{padding:3px 10px;border-radius:12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.6px}
 .regime-badge.uptrend  {background:var(--up-bg);color:var(--up-fg);border:1px solid var(--up-bdr)}
 .regime-badge.choppy   {background:var(--ch-bg);color:var(--ch-fg);border:1px solid var(--ch-bdr)}
 .regime-badge.downtrend{background:var(--dn-bg);color:var(--dn-fg);border:1px solid var(--dn-bdr)}
 .market-switch{display:flex;align-items:center;gap:6px}
-.market-pill{border:1px solid var(--border);background:var(--bg);color:var(--text2);border-radius:999px;padding:3px 9px;font:600 11px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;cursor:pointer;transition:all .12s}
+.market-pill{border:1px solid var(--border);background:var(--bg);color:var(--text2);border-radius:999px;padding:6px 10px;font:600 11px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;cursor:pointer;transition:background-color .12s,border-color .12s,color .12s}
 .market-pill:hover{border-color:var(--accent);color:var(--accent)}
 .market-pill.active{background:var(--accent);border-color:var(--accent);color:#fff}
 
@@ -68,7 +74,7 @@ body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgr
 .active-mark{font-size:9px;padding:2px 6px;background:var(--accent);color:#fff;border-radius:8px;font-weight:700;letter-spacing:.3px}
 .rcol-ct{margin-left:auto;font-size:11px;color:var(--text2)}
 .rcol-body{padding:8px;display:flex;flex-direction:column;gap:5px}
-.strat-card{padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg)}
+.strat-card{display:block;padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:inherit;text-decoration:none}
 .strat-card.clickable{cursor:pointer;transition:box-shadow .1s,background .1s}
 .strat-card.clickable:hover{background:var(--bg2);box-shadow:0 2px 8px rgba(9,105,218,.15);border-color:#0969da66}
 .strat-card.pass{border-left:3px solid var(--green)}
@@ -87,7 +93,7 @@ body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgr
 .pg-hdr{border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;position:sticky;top:0;z-index:2}
 .pg-hdr-inner{max-width:1200px;margin:0 auto;width:100%;padding:10px 20px;display:flex;align-items:center;position:relative}
 #chart-page .pg-hdr{display:flex;align-items:center;padding:8px 14px;position:relative}
-.back-btn{font-size:12px;font-weight:500;color:var(--text2);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);transition:all .12s;flex-shrink:0}
+.back-btn{font-size:12px;font-weight:500;color:var(--text2);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);transition:color .12s,background-color .12s,border-color .12s;flex-shrink:0}
 .back-btn:hover{color:var(--text);background:var(--bg3);border-color:var(--text3)}
 .pg-title{font-size:15px;font-weight:600;white-space:nowrap}
 .pg-hdr-center{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;white-space:nowrap}
@@ -132,7 +138,7 @@ body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgr
 /* year accordion */
 .yr-accord{border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:6px}
 .yr-accord:last-child{margin-bottom:0}
-.yr-head{padding:9px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;background:var(--bg2);user-select:none;transition:background .1s}
+.yr-head{width:100%;padding:9px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;background:var(--bg2);user-select:none;transition:background .1s;border:0;text-align:left;font:inherit;color:inherit}
 .yr-head:hover{background:var(--bg3)}
 .yr-head .yr-yr{font-size:14px;font-weight:700;min-width:46px}
 .yr-head .yr-meta{font-size:11px;color:var(--text2);flex:1}
@@ -156,7 +162,7 @@ tr:hover td{background:var(--bg2)}
 .perf-table th{padding:7px 14px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);border-bottom:2px solid var(--border);white-space:nowrap;background:var(--bg2)}
 .perf-table th.yr-th{text-align:right}
 .perf-table td{padding:9px 14px;border-bottom:1px solid #d0d7de33;white-space:nowrap;vertical-align:middle}
-.perf-table tbody tr{cursor:pointer}
+.perf-table tbody tr{cursor:default}
 .perf-table tbody tr:hover td{background:var(--bg3)}
 .perf-table .tally-row td{background:var(--bg2);border-top:2px solid var(--border);border-bottom:none;font-weight:600}
 .perf-table .tally-row:hover td{background:var(--bg2)}
@@ -268,7 +274,7 @@ tr:hover td{background:var(--bg2)}
 .live-hdr-inner{max-width:1200px;margin:0 auto;width:100%;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .live-body{padding:16px 20px 32px;max-width:1200px;margin:0 auto;width:100%}
 .sig-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:14px}
-.sig-card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;cursor:pointer;transition:box-shadow .12s,border-color .12s;border-left:3px solid var(--accent)}
+.sig-card{display:block;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;cursor:pointer;transition:box-shadow .12s,border-color .12s;border-left:3px solid var(--accent);color:inherit;text-decoration:none}
 .sig-card:hover{box-shadow:0 2px 8px rgba(9,105,218,.15);border-color:var(--accent)}
 .sig-card .sig-sym{font-size:15px;font-weight:700;margin-bottom:2px}
 .sig-card .sig-strat{font-size:11px;color:var(--text2);margin-bottom:8px}
@@ -291,29 +297,54 @@ tr:hover td{background:var(--bg2)}
 .port-stat .ps-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:4px}
 .port-stat .ps-val{font-size:22px;font-weight:700;font-family:monospace}
 .port-stat .ps-sub{font-size:10px;color:var(--text3);margin-top:2px}
+.term-wrap{max-width:1200px;margin:0 auto;padding:20px;width:100%}
+.term-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.term-note{font-size:12px;color:var(--text2)}
+.term-shell{background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);color:var(--text);border-radius:12px;border:1px solid var(--border);overflow:hidden;box-shadow:0 8px 24px rgba(31,35,40,.08)}
+.term-bar{padding:10px 14px;border-bottom:1px solid var(--border);font:600 12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text2);background:var(--bg2)}
+.term-lines{padding:10px 14px;display:grid;gap:4px;min-height:280px}
+.term-line{font:11px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+.term-line.empty{color:var(--text3)}
+.term-line .ts{color:var(--green)}
+.term-line .mk{color:var(--accent)}
+.term-line .ok{color:var(--green)}
+.term-line .fail{color:var(--red)}
+.term-line .run{color:#8250df}
+.nav-tab:focus-visible,.market-pill:focus-visible,.back-btn:focus-visible,.sym-link:focus-visible,.strat-card.clickable:focus-visible,.sig-card:focus-visible,.learn-btn:focus-visible,.learn-step-pill:focus-visible,.yr-head:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width: 900px){
+  #nav-inner{padding:0 14px;align-items:flex-start;flex-direction:column;justify-content:center}
+  #nav-tabs{width:100%;justify-content:flex-start}
+  #subnav-inner{padding:10px 14px}
+}
 </style>
 </head>
 <body>
 
+<a class="skip-link" href="#page">Skip to Content</a>
 <nav id="nav">
   <div id="nav-inner">
-    <div id="nav-logo"><span class="alpha-sym">α</span>ALPHA ENGINE</div>
+    <div id="nav-logo" translate="no"><span class="alpha-sym" aria-hidden="true">α</span>ALPHA ENGINE</div>
     <div id="nav-tabs">
-      <a class="nav-tab" href="#" id="tab-overview">Overview</a>
+      <a class="nav-tab" href="#/overview" id="tab-overview">Overview</a>
       <a class="nav-tab" href="#/learning" id="tab-learning">Learning</a>
       <a class="nav-tab" href="#/live" id="tab-live">Live</a>
       <a class="nav-tab" href="#/portfolio" id="tab-portfolio">Portfolio</a>
-    </div>
-    <div id="nav-right">
-      <div id="market-switch" class="market-switch"></div>
-      <span id="nav-regime" class="regime-badge">—</span>
-      <span id="nav-mkt" style="font-weight:600;color:var(--text2)">—</span>
-      <span id="nav-date">—</span>
+      <a class="nav-tab" href="#/terminal" id="tab-terminal">Terminal</a>
     </div>
   </div>
 </nav>
+<div id="subnav">
+  <div id="subnav-inner">
+    <div id="market-switch" class="market-switch" aria-label="Market Switcher"></div>
+    <div class="subnav-meta">
+      <span class="meta-chip"><span class="meta-label">Market</span><span id="nav-mkt" style="font-weight:600;color:var(--text2)">—</span></span>
+      <span id="nav-regime" class="regime-badge">—</span>
+      <span class="meta-chip"><span class="meta-label">Updated</span><span id="nav-date">—</span></span>
+    </div>
+  </div>
+</div>
 
-<div id="page"><div style="padding:40px;text-align:center;color:var(--text3)">Loading…</div></div>
+<main id="page" tabindex="-1"><div style="padding:40px;text-align:center;color:var(--text3)">Loading…</div></main>
 
 <script>
 const DATA_URL = './chart_data.json';
@@ -336,6 +367,37 @@ function normalizePayload(raw) {
 
 function marketKeys() {
   return Object.keys((D && D.markets) || {}).sort();
+}
+
+function normalizeMarketKey(key) {
+  return key ? String(key).trim().toUpperCase() : null;
+}
+
+function parseHashState() {
+  const raw = location.hash.replace(/^#\/?/, '');
+  const [pathPart, queryPart = ''] = raw.split('?');
+  const path = pathPart || 'overview';
+  return {
+    path,
+    parts: path.split('/').filter(Boolean),
+    params: new URLSearchParams(queryPart),
+  };
+}
+
+function buildHash(path, params) {
+  const cleanPath = (path || 'overview').replace(/^\/+/, '');
+  const search = params instanceof URLSearchParams
+    ? new URLSearchParams(params.toString())
+    : new URLSearchParams(params || {});
+  const qs = search.toString();
+  return '#/' + cleanPath + (qs ? '?' + qs : '');
+}
+
+function hashHref(path, marketKey) {
+  const params = new URLSearchParams();
+  const targetMarket = normalizeMarketKey(marketKey || ACTIVE_MARKET || activeMarketKey());
+  if (targetMarket) params.set('market', targetMarket);
+  return buildHash(path, params);
 }
 
 function activeMarketKey() {
@@ -424,8 +486,30 @@ function renderMarketSwitch() {
   }
   const active = activeMarketKey();
   box.innerHTML = keys.map(key =>
-    '<button class="market-pill ' + (key === active ? 'active' : '') + '" onclick="setActiveMarket(\'' + key + '\')">' + key + '</button>'
+    '<button class="market-pill ' + (key === active ? 'active' : '') + '" type="button" aria-pressed="' + (key === active ? 'true' : 'false') + '" onclick="setActiveMarket(\'' + key + '\')">' + key + '</button>'
   ).join('');
+}
+
+function updateNavLinks() {
+  document.getElementById('tab-overview').href = hashHref('overview');
+  document.getElementById('tab-learning').href = hashHref('learning');
+  document.getElementById('tab-live').href = hashHref('live');
+  document.getElementById('tab-portfolio').href = hashHref('portfolio');
+  document.getElementById('tab-terminal').href = hashHref('terminal');
+}
+
+function fmtNavDate(value) {
+  if (!value) return '—';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return fmtShortDate(value);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed);
 }
 
 function updateNavMeta() {
@@ -435,20 +519,22 @@ function updateNavMeta() {
   badge.textContent = (data && data.current_regime) || '-';
   badge.className = 'regime-badge ' + reg;
   document.getElementById('nav-mkt').textContent = activeMarketKey() || '-';
-  document.getElementById('nav-date').textContent = (data && data.generated) || '-';
+  document.getElementById('nav-date').textContent = fmtNavDate(data && data.generated);
   renderMarketSwitch();
+  updateNavLinks();
 }
 
-function setActiveMarket(marketKey, resetToOverview = true) {
+function setActiveMarket(marketKey) {
   if (!D || !D.markets || !D.markets[marketKey]) return;
   ACTIVE_MARKET = marketKey;
   try { localStorage.setItem(MARKET_STORAGE_KEY, marketKey); } catch (_) {}
+  const state = parseHashState();
+  const params = new URLSearchParams(state.params.toString());
+  params.set('market', marketKey);
   updateNavMeta();
-  if (resetToOverview) {
-    if (location.hash !== '#/overview') {
-      nav('overview');
-    }
-    route();
+  const target = buildHash(state.path || 'overview', params);
+  if (location.hash !== target) {
+    location.hash = target;
     return;
   }
   route();
@@ -458,11 +544,23 @@ async function loadData() {
   D = normalizePayload(await loadSnapshotPayload());
   await hydrateRegimePeriods();
   await loadFixedLearningData();
+  const state = parseHashState();
+  const routeMarket = normalizeMarketKey(state.params.get('market'));
   const storedMarket = (() => {
-    try { return localStorage.getItem(MARKET_STORAGE_KEY); } catch (_) { return null; }
+    try { return normalizeMarketKey(localStorage.getItem(MARKET_STORAGE_KEY)); } catch (_) { return null; }
   })();
-  ACTIVE_MARKET = storedMarket && D.markets && D.markets[storedMarket] ? storedMarket : activeMarketKey();
+  ACTIVE_MARKET =
+    routeMarket && D.markets && D.markets[routeMarket] ? routeMarket :
+    storedMarket && D.markets && D.markets[storedMarket] ? storedMarket :
+    activeMarketKey();
   updateNavMeta();
+  const params = new URLSearchParams(state.params.toString());
+  if (ACTIVE_MARKET) params.set('market', ACTIVE_MARKET);
+  const target = buildHash(state.path || 'overview', params);
+  if (location.hash !== target) {
+    location.hash = target;
+    return;
+  }
   route();
 }
 
@@ -567,6 +665,13 @@ function normalizeFixedLearningLessons(raw) {
 
 function route() {
   if (!D) return;
+  const state = parseHashState();
+  const routeMarket = normalizeMarketKey(state.params.get('market'));
+  if (routeMarket && D.markets && D.markets[routeMarket] && routeMarket !== ACTIVE_MARKET) {
+    ACTIVE_MARKET = routeMarket;
+    try { localStorage.setItem(MARKET_STORAGE_KEY, routeMarket); } catch (_) {}
+  }
+  updateNavMeta();
   destroyCharts();
   const data = currentData();
   const pg = document.getElementById('page');
@@ -574,8 +679,7 @@ function route() {
     pg.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">No market snapshots exported yet. Run chart-export first.</div>';
     return;
   }
-  const hash  = location.hash.replace(/^#\/?/, '');
-  const parts = hash.split('/').filter(Boolean);
+  const parts = state.parts;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   pg.classList.remove('chart-mode');
   pg.classList.remove('learning-mode');
@@ -599,6 +703,10 @@ function route() {
   else if (parts[0] === 'portfolio') {
     document.getElementById('tab-portfolio').classList.add('active');
     renderPortfolioPage();
+  }
+  else if (parts[0] === 'terminal') {
+    document.getElementById('tab-terminal').classList.add('active');
+    renderTerminalPage();
   }
   else if (parts[0] === 'strategy' && parts[1] && parts[2]) renderStrategyDetail(parts[1], parts[2]);
   else if (parts[0] === 'chart' && parts[1] && parts[2] && parts[3]) { pg.classList.add('chart-mode'); renderSymbolChart(parts[1], parts[2], decodeURIComponent(parts[3])); }
@@ -641,7 +749,18 @@ const avgRetFromYearly = yearly => {
 };
 const pct = (n, d=1) => n == null ? '—' : (n >= 0 ? '+' : '') + n.toFixed(d) + '%';
 const clr = n => n >= 0 ? 'pos' : 'neg';
-const nav = hash => { location.hash = hash ? '/' + hash : ''; };
+const nav = path => {
+  const state = parseHashState();
+  const params = new URLSearchParams(state.params.toString());
+  const marketKey = normalizeMarketKey(ACTIVE_MARKET || activeMarketKey());
+  if (marketKey) params.set('market', marketKey);
+  const target = buildHash(path || 'overview', params);
+  if (location.hash !== target) {
+    location.hash = target;
+    return;
+  }
+  route();
+};
 const DISABLED_STRATEGY_IDS = new Set(['narrow_range']);
 const isVisibleStrategy = strat => !!strat && !DISABLED_STRATEGY_IDS.has(strat.id);
 const pill = r => {
@@ -660,6 +779,14 @@ function isoDate(ymd) {
 function fmtShortDate(ymd) {
   const d = isoDate(ymd);
   return d.toLocaleDateString(undefined, {day:'2-digit', month:'short', year:'numeric', timeZone:'UTC'});
+}
+
+function todayYmd() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
 }
 
 function dayDiff(start, end) {
@@ -692,6 +819,19 @@ function collectPassingEntries(rm, optLookup, allIds) {
     return sLabel(a.id).localeCompare(sLabel(b.id));
   });
   return passEntries;
+}
+
+function buildYearMarks(points, xAt) {
+  const marks = [];
+  const seenYears = new Set();
+  points.forEach((point, idx) => {
+    const year = point.date.slice(0, 4);
+    if ((idx === 0 || point.date.slice(5) === '01-01') && !seenYears.has(year)) {
+      seenYears.add(year);
+      marks.push({year, date: point.date, x: xAt(point.date)});
+    }
+  });
+  return marks;
 }
 
 function buildOverviewPortfolioModel(data, passEntries) {
@@ -786,15 +926,7 @@ function buildOverviewSummarySection(data, passEntries, cur) {
   const linePath = model.points.map((p, idx) => (idx ? 'L' : 'M') + xAt(p.date).toFixed(2) + ' ' + yAt(p.equity).toFixed(2)).join(' ');
   const areaPath = linePath + ' L ' + xAt(model.points[model.points.length - 1].date).toFixed(2) + ' ' + (M.top + innerH).toFixed(2) + ' L ' + xAt(model.points[0].date).toFixed(2) + ' ' + (M.top + innerH).toFixed(2) + ' Z';
 
-  const yearMarks = [];
-  const seenYears = new Set();
-  model.points.forEach((point, idx) => {
-    const year = point.date.slice(0, 4);
-    if ((idx === 0 || point.date.slice(5) === '01-01') && !seenYears.has(year)) {
-      seenYears.add(year);
-      yearMarks.push({year, date: point.date, x: xAt(point.date)});
-    }
-  });
+  const yearMarks = buildYearMarks(model.points, xAt);
   const yearGrid = yearMarks.map(mark =>
     '<line x1="' + mark.x.toFixed(2) + '" y1="' + M.top + '" x2="' + mark.x.toFixed(2) + '" y2="' + (M.top + innerH) + '" stroke="rgba(140,149,159,0.22)" stroke-dasharray="3 4"></line>' +
     '<text x="' + mark.x.toFixed(2) + '" y="' + (H - 8) + '" font-size="11" fill="#656d76" text-anchor="middle">' + mark.year + '</text>'
@@ -815,13 +947,13 @@ function buildOverviewSummarySection(data, passEntries, cur) {
     return acc;
   }, {});
 
-  const stripW = 1100;
+  const stripW = W;
   const stripH = 54;
-  const stripX = ymd => 14 + (dayDiff(model.start, ymd) / totalDays) * (stripW - 28);
+  const stripX = xAt;
   const currentPeriod = model.periods[model.periods.length - 1];
   const stripRects = model.periods.map(period => {
     const x1 = stripX(period.start_date);
-    const x2 = stripX(period.end_date) + ((stripW - 28) / totalDays);
+    const x2 = stripX(period.end_date) + (innerW / totalDays);
     const highlight = period === currentPeriod;
     const fill = bandFill[period.regime].replace('0.10', '0.88').replace('0.11', '0.88');
     const stroke = bandStroke[period.regime].replace('0.12', '0.55').replace('0.13', '0.55');
@@ -842,7 +974,7 @@ function buildOverviewSummarySection(data, passEntries, cur) {
           '<div class="story-top">' +
             '<div class="story-copy">' +
               '<div class="story-title">5-year realised equity with regime context</div>' +
-              '<div class="story-sub">Equal-capital sleeves across all passing strategy-regime pairs. Equity moves only when trades close, so the line shows realised compounding rather than mark-to-market noise.</div>' +
+              '<div class="story-sub">Equal-capital sleeves across all passing strategy-regime pairs. Equity moves only when trades close, so the line shows realised compounding rather than mark-to-market noise. Sleeves are selected by entry regime, which means exits can still realise P&amp;L after the benchmark has already rotated into the next regime.</div>' +
             '</div>' +
             '<div class="story-metrics">' +
               '<div class="story-metric"><div class="lbl">Final Equity</div><div class="val">' + money(model.finalEquity) + '</div><div class="sub">' + pct(model.totalReturnPct, 1) + ' vs start</div></div>' +
@@ -936,16 +1068,16 @@ function renderOverview() {
       const calmar  = opt ? opt.calmar  : base.calmar;
       const wr      = opt ? opt.win_rate : base.wr;
       const ntrades = opt ? opt.symbols.reduce((a,s) => a + s.trade_count, 0) : base.trade_count;
-      const click   = pass && opt ? 'onclick="nav(\'strategy/' + id + '/' + key + '\')"' : '';
+      const href    = pass && opt ? hashHref('strategy/' + id + '/' + key) : '';
       cards +=
-        '<div class="strat-card ' + (pass ? 'pass ' + (opt ? 'clickable' : '') : 'fail') + '" ' + click + '>' +
+        '<' + (href ? 'a href="' + href + '"' : 'div') + ' class="strat-card ' + (pass ? 'pass ' + (opt ? 'clickable' : '') : 'fail') + '">' +
           '<div class="sc-name">' + sLabel(id) + ' <span class="badge ' + (pass ? 'pass' : 'fail') + '">' + (pass ? 'PASS' : 'FAIL') + '</span></div>' +
           '<div class="sc-metrics">' +
             '<div class="sc-m"><div class="sc-ml">Calmar</div><div class="sc-mv neu">' + fmt(calmar, 2) + '</div></div>' +
             '<div class="sc-m"><div class="sc-ml">Win Rate</div><div class="sc-mv neu">' + fmt(wr, 1) + '%</div></div>' +
             '<div class="sc-m"><div class="sc-ml">Trades</div><div class="sc-mv neu">' + ntrades + '</div></div>' +
           '</div>' +
-        '</div>';
+        '</' + (href ? 'a' : 'div') + '>';
     });
     if (!cards) cards = '<div class="no-edge">No strategies in this regime</div>';
 
@@ -980,13 +1112,13 @@ function renderOverviewFallback(strats, cur) {
     const match = sorted.filter(s => s.regime === reg);
     let cards = match.map(s => {
       const n = s.symbols.reduce((a,x) => a + x.trade_count, 0);
-      return '<div class="strat-card pass clickable" onclick="nav(\'strategy/' + s.id + '/' + reg + '\')">' +
+      return '<a class="strat-card pass clickable" href="' + hashHref('strategy/' + s.id + '/' + reg) + '">' +
         '<div class="sc-name">' + sLabel(s.id) + ' <span class="badge pass">PASS</span></div>' +
         '<div class="sc-metrics">' +
           '<div class="sc-m"><div class="sc-ml">Calmar</div><div class="sc-mv neu">' + fmt(s.calmar,2) + '</div></div>' +
           '<div class="sc-m"><div class="sc-ml">Ret/yr</div><div class="sc-mv ' + clr(s.ret_pct) + '">' + pct(s.ret_pct) + '</div></div>' +
           '<div class="sc-m"><div class="sc-ml">Trades</div><div class="sc-mv neu">' + n + '</div></div>' +
-        '</div></div>';
+        '</div></a>';
     }).join('');
     if (!cards) cards = '<div class="no-edge">No strategies passed</div>';
     cols += '<div class="regime-col' + (cur===reg ? ' active-col' : '') + '">' +
@@ -1083,8 +1215,8 @@ function buildPerfTable(rm, optLookup, allIds, cur, passEntriesOverride) {
 
     const rowCls = cur ? (isLive ? 'live-row' : 'dim-row') : '';
     rows +=
-      '<tr class="' + rowCls + '" onclick="nav(\'strategy/' + id + '/' + reg + '\')">' +
-        '<td class="pt-name">' + sLabel(id) + '</td>' +
+      '<tr class="' + rowCls + '">' +
+        '<td class="pt-name"><a class="sym-link" href="' + hashHref('strategy/' + id + '/' + reg) + '">' + sLabel(id) + '</a></td>' +
         '<td>' + pill(reg) + '</td>' +
         '<td class="mono">' + fmt(calmar,2) + '</td>' +
         '<td class="mono neg">' + (dd!=null ? fmt(dd,1)+'%' : '—') + '</td>' +
@@ -1790,21 +1922,21 @@ function renderStrategyDetail(stratId, regime) {
       rows +=
         '<tr>' +
           '<td style="color:var(--text3)">' + (i+1) + '</td>' +
-          '<td><a class="sym-link" onclick="nav(\'chart/' + stratId + '/' + regime + '/' + encodeURIComponent(s.symbol) + '\')">' + s.symbol + '</a></td>' +
+          '<td><a class="sym-link" href="' + hashHref('chart/' + stratId + '/' + regime + '/' + encodeURIComponent(s.symbol)) + '">' + s.symbol + '</a></td>' +
           '<td class="' + clr(s.pnl) + '">' + fmt(s.pnl) + '</td>' +
           '<td>' + s.trades + '</td>' +
           '<td>' + wrS + '</td>' +
-          '<td><a class="sym-link" onclick="nav(\'chart/' + stratId + '/' + regime + '/' + encodeURIComponent(s.symbol) + '\')">→ Chart</a></td>' +
+          '<td><a class="sym-link" href="' + hashHref('chart/' + stratId + '/' + regime + '/' + encodeURIComponent(s.symbol)) + '">→ Chart</a></td>' +
         '</tr>';
     });
     accordHtml +=
       '<div class="yr-accord">' +
-        '<div class="yr-head' + (isOpen?' open':'') + '" onclick="toggleYr(this)">' +
+        '<button type="button" class="yr-head' + (isOpen?' open':'') + '" onclick="toggleYr(this)">' +
           '<span class="yr-yr">' + yr + '</span>' +
           '<span class="yr-meta">' + yrTrades + ' trades &nbsp;·&nbsp; ' + symList.length + ' symbols</span>' +
           '<span class="yr-pnl ' + clr(yrPnl) + '">' + fmt(yrPnl) + '</span>' +
           '<span class="yr-arr">▼</span>' +
-        '</div>' +
+        '</button>' +
         '<div class="yr-body' + (isOpen?' open':'') + '">' +
           '<table><thead><tr><th>#</th><th>Symbol</th><th>PnL</th><th>Trades</th><th>WR</th><th></th></tr></thead>' +
           '<tbody>' + rows + '</tbody></table>' +
@@ -1814,7 +1946,7 @@ function renderStrategyDetail(stratId, regime) {
 
   document.getElementById('page').innerHTML =
     '<div class="pg-hdr"><div class="pg-hdr-inner">' +
-      '<a class="back-btn" onclick="nav(\'\')">← Overview</a>' +
+      '<a class="back-btn" href="' + hashHref('overview') + '">← Overview</a>' +
       '<div class="pg-hdr-center"><span class="pg-title">' + sLabel(stratId) + '</span>' + pill(regime) + '</div>' +
     '</div></div>' +
     '<div class="pg-body">' +
@@ -1978,7 +2110,7 @@ async function renderSymbolChart(stratId, regime, symbol) {
   document.getElementById('page').innerHTML =
     '<div id="chart-page">' +
       '<div class="pg-hdr">' +
-        '<a class="back-btn" onclick="nav(\'strategy/'+stratId+'/'+activeRegime+'\')">← '+sLabel(stratId)+'</a>' +
+        '<a class="back-btn" href="' + hashHref('strategy/' + stratId + '/' + activeRegime) + '">← '+sLabel(stratId)+'</a>' +
         '<div class="pg-hdr-center"><span class="pg-title">'+symbol+'</span>' + pill(activeRegime) + '</div>' +
       '</div>' +
       '<div id="chart-stats">' +
@@ -2390,7 +2522,7 @@ function renderLearningHome() {
       '<div class="learn-meta">' +
         '<span><strong>Indicators</strong> ' + lesson.indicators.map(i => i.name).slice(0,4).join(', ') + '</span>' +
       '</div>' +
-      '<button class="learn-btn" onclick="nav(\'learning/' + lesson.id + '/' + lesson.regime + '\')">Learn</button>' +
+      '<a class="learn-btn" href="' + hashHref('learning/' + lesson.id + '/' + lesson.regime) + '">Learn</a>' +
     '</div>'
   ).join('');
 
@@ -2480,7 +2612,7 @@ async function renderLearningLesson(stratId, regime) {
     '<div class="learn-player">' +
       '<div class="pg-hdr">' +
         '<div class="pg-hdr-inner">' +
-          '<a class="back-btn" onclick="nav(\'learning\')">← Learning</a>' +
+          '<a class="back-btn" href="' + hashHref('learning') + '">← Learning</a>' +
           '<div class="pg-hdr-center"><span class="pg-title">' + lesson.copy.title + '</span>' + pill(lesson.regime) + '</div>' +
         '</div>' +
       '</div>' +
@@ -2818,7 +2950,7 @@ async function renderLivePage() {
   } catch(e) {
     pg.innerHTML = _liveUnavail(e.message); return;
   }
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayYmd();
   const todaySigs = sigs.filter(s => s.scan_date === today);
   const latestDate = todaySigs.length
     ? today
@@ -2826,7 +2958,7 @@ async function renderLivePage() {
   const displaySigs = latestDate ? sigs.filter(s => s.scan_date === latestDate) : [];
   const regime    = displaySigs[0] ? displaySigs[0].regime : (active[0] ? '—' : '—');
   const regClass  = regime === 'uptrend' ? 'uptrend' : regime === 'downtrend' ? 'downtrend' : 'choppy';
-  const dateLabel = latestDate || today;
+  const dateLabel = fmtShortDate(latestDate || today);
   const staleNote = latestDate && latestDate !== today ? ' · latest scan' : '';
   let html = `<div class="live-hdr"><div class="live-hdr-inner">
     <span style="font-size:14px;font-weight:600">Live Signals — ${market}</span>
@@ -2840,18 +2972,19 @@ async function renderLivePage() {
     html += '<div class="sig-grid">';
     displaySigs.forEach(s => {
       const sym  = encodeURIComponent(s.symbol);
-      const href = '#/chart/' + market + '/' + sym;
+      const href = hashHref('chart/' + market + '/' + sym);
+      const sigRegClass = s.regime === 'uptrend' ? 'uptrend' : s.regime === 'downtrend' ? 'downtrend' : 'choppy';
       const tp2  = s.tp2_price ? `<div class="sig-lvl tp1"><div class="sig-ll">TP2</div><div class="sig-lv">${s.tp2_price.toFixed(4)}</div></div>` : '';
-      html += `<div class="sig-card" onclick="location.hash='${href.slice(1)}'">
+      html += `<a class="sig-card" href="${href}">
         <div class="sig-sym">${s.symbol}</div>
-        <div class="sig-strat">${s.strategy} <span class="pill ${regClass}" style="font-size:9px">${s.regime}</span></div>
+        <div class="sig-strat">${s.strategy} <span class="pill ${sigRegClass}" style="font-size:9px">${s.regime}</span></div>
         <div class="sig-levels">
           <div class="sig-lvl entry"><div class="sig-ll">Entry</div><div class="sig-lv">${s.entry_price.toFixed(4)}</div></div>
           <div class="sig-lvl sl"><div class="sig-ll">SL</div><div class="sig-lv">${s.sl_price.toFixed(4)}</div></div>
           <div class="sig-lvl tp1"><div class="sig-ll">TP1</div><div class="sig-lv">${s.tp1_price.toFixed(4)}</div></div>
           ${tp2}
         </div>
-      </div>`;
+      </a>`;
     });
     html += '</div>';
   }
@@ -2860,11 +2993,10 @@ async function renderLivePage() {
     <table style="border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;overflow:hidden">
     <thead><tr><th>Strategy</th><th>Regime</th><th>Combo</th><th>Promoted</th></tr></thead><tbody>`;
     active.forEach(a => {
-      const regC = a.regime==='uptrend'?'up-fg':a.regime==='downtrend'?'dn-fg':'ch-fg';
       html += `<tr><td style="font-weight:600">${a.strategy}</td>
         <td><span class="pill ${a.regime}">${a.regime}</span></td>
         <td style="font-family:monospace;font-size:11px">${a.source_combo||'—'}</td>
-        <td style="color:var(--text3)">${a.promoted_at}</td></tr>`;
+        <td style="color:var(--text3)">${fmtNavDate(a.promoted_at)}</td></tr>`;
     });
     html += '</tbody></table></div>';
   }
@@ -2884,7 +3016,7 @@ async function renderLivePage() {
         .slice(0, 5)
         .join('<br>');
       html += `<tr>
-        <td style="color:var(--text3);white-space:nowrap">${String(h.logged_at || '').slice(0,16).replace('T',' ')}</td>
+        <td style="color:var(--text3);white-space:nowrap">${fmtNavDate(h.logged_at)}</td>
         <td style="font-family:monospace">active=${d.active_count || 0} +${added.length} ~${changed.length} -${retired.length}</td>
         <td style="font-size:11px;line-height:1.5">${changes || '—'}</td></tr>`;
     });
@@ -2909,10 +3041,17 @@ async function renderPortfolioPage() {
   const s   = data.summary;
   const pnlClass = s.total_pnl >= 0 ? 'pos' : 'neg';
   const pnlSign  = s.total_pnl >= 0 ? '+' : '';
+  const openPnlKnown = typeof s.open_pnl === 'number';
+  const openPnlClass = !openPnlKnown ? 'neu' : (s.open_pnl >= 0 ? 'pos' : 'neg');
+  const openPnlSign  = !openPnlKnown ? '' : (s.open_pnl >= 0 ? '+' : '');
+  const equityNote = typeof s.equity_including_open === 'number'
+    ? 'Incl open ' + s.equity_including_open.toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})
+    : 'Initial ' + s.initial_capital.toLocaleString();
   let html = `<div class="port-body">
   <div class="port-stats">
-    <div class="port-stat"><div class="ps-lbl">Equity</div><div class="ps-val neu">${s.equity.toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})}</div><div class="ps-sub">Initial ${s.initial_capital.toLocaleString()}</div></div>
+    <div class="port-stat"><div class="ps-lbl">Equity</div><div class="ps-val neu">${s.equity.toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})}</div><div class="ps-sub">${equityNote}</div></div>
     <div class="port-stat"><div class="ps-lbl">Total P&L</div><div class="ps-val ${pnlClass}">${pnlSign}${s.total_pnl.toFixed(2)}</div><div class="ps-sub">${pnlSign}${s.total_pnl_pct.toFixed(2)}%</div></div>
+    <div class="port-stat"><div class="ps-lbl">Open P&L</div><div class="ps-val ${openPnlClass}">${openPnlKnown ? (openPnlSign + s.open_pnl.toFixed(2)) : '—'}</div><div class="ps-sub">Mark-to-market</div></div>
     <div class="port-stat"><div class="ps-lbl">Win Rate</div><div class="ps-val neu">${(s.win_rate*100).toFixed(0)}%</div><div class="ps-sub">${s.closed_trades} closed trades</div></div>
     <div class="port-stat"><div class="ps-lbl">Open Positions</div><div class="ps-val neu">${s.open_count}</div><div class="ps-sub">of 10 max</div></div>
   </div>`;
@@ -2920,20 +3059,25 @@ async function renderPortfolioPage() {
   // Open positions
   if (data.open_positions.length) {
     html += `<div class="card"><div class="card-hdr">Open Positions (${data.open_positions.length})</div><div style="overflow-x:auto">
-    <table><thead><tr><th>Symbol</th><th>Strategy</th><th>Regime</th><th>Entry</th><th>SL (live)</th><th>TP1</th><th>Shares</th><th>Bars</th><th>TP1 hit</th></tr></thead><tbody>`;
+    <table><thead><tr><th>Symbol</th><th>Strategy</th><th>Regime</th><th>Entry</th><th>Last</th><th>SL (live)</th><th>TP1</th><th>Shares</th><th>Bars</th><th>TP1 hit</th><th>Unrealized</th></tr></thead><tbody>`;
     data.open_positions.forEach(p => {
       const sym  = encodeURIComponent(p.symbol);
-      const href = 'live/' + market + '/' + sym;
+      const last = typeof p.latest_close === 'number' ? p.latest_close.toFixed(4) : '—';
+      const upnlKnown = typeof p.unrealized_pnl === 'number';
+      const upnlClass = !upnlKnown ? '' : (p.unrealized_pnl >= 0 ? 'pos' : 'neg');
+      const upnlText = !upnlKnown ? '—' : ((p.unrealized_pnl >= 0 ? '+' : '') + p.unrealized_pnl.toFixed(2));
       html += `<tr>
-        <td><a class="sym-link" href="#/chart/${market}/${sym}">${p.symbol}</a></td>
+        <td><a class="sym-link" href="${hashHref('chart/' + market + '/' + sym)}">${p.symbol}</a></td>
         <td>${p.strategy}</td>
         <td><span class="pill ${p.regime}">${p.regime}</span></td>
         <td style="font-family:monospace">${p.entry_price.toFixed(4)}</td>
+        <td style="font-family:monospace">${last}</td>
         <td style="font-family:monospace;color:var(--red)">${p.sl_current.toFixed(4)}</td>
         <td style="font-family:monospace;color:var(--green)">${p.tp1_price.toFixed(4)}</td>
         <td style="font-family:monospace">${p.remaining_shares.toFixed(1)}</td>
         <td>${p.bars_held}</td>
-        <td>${p.tp1_hit ? '✓' : '—'}</td></tr>`;
+        <td>${p.tp1_hit ? '✓' : '—'}</td>
+        <td class="${upnlClass}" style="font-family:monospace;font-weight:600">${upnlText}</td></tr>`;
     });
     html += '</tbody></table></div></div>';
   } else {
@@ -2958,6 +3102,37 @@ async function renderPortfolioPage() {
   }
   html += '</div>';
   pg.innerHTML = html;
+}
+
+async function renderTerminalPage() {
+  const pg     = document.getElementById('page');
+  const market = activeMarketKey();
+  if (!market) { pg.innerHTML = _liveUnavail('No market data loaded.'); return; }
+  pg.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading terminal…</div>';
+  let rows;
+  try {
+    rows = await fetchApiJson('/api/logs?market=' + market.toLowerCase() + '&limit=15');
+  } catch(e) {
+    pg.innerHTML = _liveUnavail(e.message); return;
+  }
+  const filled = rows.slice(0, 15);
+  while (filled.length < 15) filled.push(null);
+  const statusClass = row => row.outcome === 'failed' ? 'fail' : row.outcome === 'running' ? 'run' : 'ok';
+  const lineHtml = filled.map(row => {
+    if (!row) return '<div class="term-line empty">[waiting] no recent pipeline rows yet</div>';
+    const ts = fmtNavDate(row.logged_at);
+    const mk = row.market === 'all' ? 'ALL' : row.market.toUpperCase();
+    return '<div class="term-line"><span class="ts">[' + ts + ']</span> <span class="mk">' + mk + '</span> <span class="' + statusClass(row) + '">' + row.stage + '</span> ' + row.message + '</div>';
+  }).join('');
+  pg.innerHTML = '<div class="term-wrap">' +
+    '<div class="term-head">' +
+      '<div><div style="font-size:14px;font-weight:700">Terminal — ' + market + '</div><div class="term-note">Default scheduler: 10:00 UTC. Equities run Mon-Fri, commodity Sun-Fri, crypto daily.</div></div>' +
+    '</div>' +
+    '<div class="term-shell">' +
+      '<div class="term-bar">pipeline_logs · latest 15 rows · postgres-backed when DATABASE_URL is Postgres</div>' +
+      '<div class="term-lines">' + lineHtml + '</div>' +
+    '</div>' +
+  '</div>';
 }
 </script>
 </body>

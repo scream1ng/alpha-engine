@@ -116,6 +116,34 @@ def _round_float(value: Any) -> float:
     return round(float(value), 6)
 
 
+def _latest_close_for_symbol(market: str, symbol: str) -> float | None:
+    market_key = market.strip().upper()
+    ticker = _safe_symbol(symbol)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _cache_path(market_key, ticker, "1mo", None, None)
+    try:
+        if _cache_fresh(path):
+            payload = _read_json(path)
+            rows = payload.get("ohlcv") or []
+        else:
+            rows = _download_ohlcv(ticker, "1mo", None, None)
+            payload = {
+                "market": market_key,
+                "symbol": ticker,
+                "period": "1mo",
+                "start": None,
+                "end": None,
+                "ohlcv": rows,
+                "source": "yfinance",
+            }
+            path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        if not rows:
+            return None
+        return _round_float(rows[-1]["close"])
+    except Exception:
+        return None
+
+
 def _regime_periods(rows: list[RegimeLabelModel]) -> list[dict[str, Any]]:
     ordered = sorted(rows, key=lambda row: row.date)
     if not ordered:
@@ -154,6 +182,25 @@ def _regime_periods(rows: list[RegimeLabelModel]) -> list[dict[str, Any]]:
 
     flush(current, start, end, bars)
     return periods
+
+
+def _pipeline_log_message(row: PipelineLog) -> str:
+    details = row.details or {}
+    summary = str(details.get("summary") or "").strip()
+    if summary:
+        return summary
+    if row.stage == "active-sync":
+        return (
+            f"active-sync active={details.get('active_count', 0)} "
+            f"+{len(details.get('added') or [])} "
+            f"~{len(details.get('changed') or [])} "
+            f"-{len(details.get('retired') or [])}"
+        )
+    if row.stage.startswith("scheduler:"):
+        duration = details.get("duration_s")
+        suffix = f" in {duration}s" if duration is not None else ""
+        return f"{row.stage.split(':', 1)[1]} {row.outcome}{suffix}"
+    return f"{row.stage} {row.outcome}"
 
 
 @app.get("/health")
@@ -308,6 +355,37 @@ def active_history(
         db.close()
 
 
+@app.get("/api/logs")
+def pipeline_logs(
+    market: str = Query(..., min_length=1, max_length=16),
+    limit: int = Query(15, ge=1, le=15),
+    include_global: bool = True,
+) -> list[dict]:
+    """Recent compact pipeline/scheduler logs for a market."""
+    m = market.strip().lower()
+    db = SessionLocal()
+    try:
+        q = db.query(PipelineLog)
+        if include_global:
+            q = q.filter((PipelineLog.market == m) | (PipelineLog.market == "all"))
+        else:
+            q = q.filter(PipelineLog.market == m)
+        rows = q.order_by(PipelineLog.logged_at.desc()).limit(limit).all()
+        return [
+            {
+                "logged_at": str(r.logged_at),
+                "market": r.market,
+                "stage": r.stage,
+                "outcome": r.outcome,
+                "message": _pipeline_log_message(r),
+                "details": r.details or {},
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
 @app.get("/api/paper")
 def paper_portfolio(market: str = Query(..., min_length=1, max_length=16)) -> dict:
     """Paper portfolio: open positions, recent trades, summary."""
@@ -334,24 +412,30 @@ def paper_portfolio(market: str = Query(..., min_length=1, max_length=16)) -> di
             .filter(PaperPositionModel.market == m)
             .all()
         )
+        closed_positions = (
+            db.query(PaperPositionModel)
+            .filter_by(market=m, status="closed")
+            .all()
+        )
 
         total_pnl  = sum(t.pnl or 0.0 for t in all_trades)
         equity     = _PAPER_CAPITAL + total_pnl
-        closed     = [t for t in all_trades if not (t.exit_reason or "").startswith("tp")]
-        wins       = [t for t in all_trades if (t.pnl or 0) > 0]
-        win_rate   = len(wins) / len(all_trades) if all_trades else 0.0
+        wins       = [p for p in closed_positions if (p.pnl or 0.0) > 0]
+        win_rate   = len(wins) / len(closed_positions) if closed_positions else 0.0
 
-        return {
-            "summary": {
-                "equity":          round(equity, 2),
-                "initial_capital": _PAPER_CAPITAL,
-                "total_pnl":       round(total_pnl, 2),
-                "total_pnl_pct":   round(total_pnl / _PAPER_CAPITAL * 100, 2),
-                "open_count":      len(open_pos),
-                "closed_trades":   len(all_trades),
-                "win_rate":        round(win_rate, 4),
-            },
-            "open_positions": [
+        latest_close_map = {
+            p.symbol: _latest_close_for_symbol(m, p.symbol)
+            for p in open_pos
+        }
+        open_pnls: list[float] = []
+        open_positions_payload: list[dict[str, Any]] = []
+        for p in open_pos:
+            latest_close = latest_close_map.get(p.symbol)
+            unrealized_pnl = None
+            if latest_close is not None:
+                unrealized_pnl = round((latest_close - p.entry_price) * p.remaining_shares, 2)
+                open_pnls.append(unrealized_pnl)
+            open_positions_payload.append(
                 {
                     "id":               p.id,
                     "symbol":           p.symbol,
@@ -359,6 +443,7 @@ def paper_portfolio(market: str = Query(..., min_length=1, max_length=16)) -> di
                     "regime":           p.regime,
                     "entry_date":       str(p.entry_date),
                     "entry_price":      p.entry_price,
+                    "latest_close":     latest_close,
                     "sl_current":       p.sl_current,
                     "tp1_price":        p.tp1_price,
                     "tp2_price":        p.tp2_price,
@@ -366,10 +451,24 @@ def paper_portfolio(market: str = Query(..., min_length=1, max_length=16)) -> di
                     "remaining_shares": p.remaining_shares,
                     "bars_held":        p.bars_held,
                     "tp1_hit":          p.tp1_hit,
-                    "unrealized_pnl":   None,  # Phase 5 will add live price
+                    "unrealized_pnl":   unrealized_pnl,
                 }
-                for p in open_pos
-            ],
+            )
+        open_pnl_total = round(sum(open_pnls), 2) if len(open_pnls) == len(open_pos) else None
+
+        return {
+            "summary": {
+                "equity":                round(equity, 2),
+                "equity_including_open": round(equity + open_pnl_total, 2) if open_pnl_total is not None else None,
+                "initial_capital":       _PAPER_CAPITAL,
+                "total_pnl":             round(total_pnl, 2),
+                "total_pnl_pct":         round(total_pnl / _PAPER_CAPITAL * 100, 2),
+                "open_pnl":              open_pnl_total,
+                "open_count":            len(open_pos),
+                "closed_trades":         len(closed_positions),
+                "win_rate":              round(win_rate, 4),
+            },
+            "open_positions": open_positions_payload,
             "recent_trades": [
                 {
                     "position_id": t.position_id,

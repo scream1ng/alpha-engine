@@ -2737,12 +2737,13 @@ def _export_chart_export_markdown(
 _PAPER_CAPITAL         = 100_000.0
 _PAPER_MAX_OPEN        = 10
 _PAPER_MAX_PER_STRATEGY = 4
-_PAPER_RISK_PCT        = 0.01
 
 
 def cmd_paper_update(adapter: MarketAdapter, args: argparse.Namespace) -> None:
     """Daily paper portfolio update: process exits then open new positions."""
+    from config import MARKET_CONFIGS
     from core.exit_policy import HardExitPolicy
+    from core.risk_policy import get_risk_policy
     from core.indicators import ema as _ema
     from core.signal import Signal, Position
     from db.models import (
@@ -2792,6 +2793,9 @@ def cmd_paper_update(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         }
 
     exit_policy    = HardExitPolicy()
+    risk_policy    = get_risk_policy()
+    market_cfg     = MARKET_CONFIGS.get(market)
+    default_risk_pct = market_cfg.risk_per_trade if market_cfg else 0.005
     exits_count    = 0
     opened_count   = 0
 
@@ -2821,7 +2825,7 @@ def cmd_paper_update(adapter: MarketAdapter, args: argparse.Namespace) -> None:
                 tp2_partial_pct=ep.get("tp2_partial_pct", 0.0),
                 ema_exit_period=ep.get("ema_exit_period", 0),
                 hard_stop_mode=ep.get("hard_stop_mode", "trail"),
-                risk_pct=_PAPER_RISK_PCT,
+                risk_pct=float(ep.get("risk_pct") or default_risk_pct),
                 max_bars=ep.get("max_bars", 0),
             )
             position = Position(
@@ -2869,14 +2873,25 @@ def cmd_paper_update(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         db.commit()
 
         # ── 2. Equity (realized) ─────────────────────────────────────────────
-        total_pnl = sum(t.pnl or 0.0 for t in db.query(PaperTradeModel).all())
+        total_pnl = sum(
+            t.pnl or 0.0
+            for t in (
+                db.query(PaperTradeModel)
+                .join(PaperPositionModel, PaperTradeModel.position_id == PaperPositionModel.id)
+                .filter(PaperPositionModel.market == market)
+                .all()
+            )
+        )
         equity    = _PAPER_CAPITAL + total_pnl
 
         # ── 3. Open new positions ────────────────────────────────────────────
-        open_count = db.query(PaperPositionModel).filter_by(market=market, status="open").count()
+        open_rows = db.query(PaperPositionModel).filter_by(market=market, status="open").all()
+        open_count = len(open_rows)
         strat_counts: dict[str, int] = {}
-        for p in db.query(PaperPositionModel).filter_by(market=market, status="open").all():
+        current_heat = 0.0
+        for p in open_rows:
             strat_counts[p.strategy] = strat_counts.get(p.strategy, 0) + 1
+            current_heat += float((p.exit_params or {}).get("risk_pct") or default_risk_pct)
 
         for sig_rec in new_signals:
             if open_count >= _PAPER_MAX_OPEN:
@@ -2889,9 +2904,6 @@ def cmd_paper_update(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             sl_dist = sig_rec.entry_price - sig_rec.sl_price
             if sl_dist <= 0:
                 continue
-            shares = (equity * _PAPER_RISK_PCT) / sl_dist
-            if shares < 0.01:
-                continue
 
             active = (
                 db.query(ActiveStrategyModel)
@@ -2900,6 +2912,40 @@ def cmd_paper_update(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             )
             ep = dict(active.params) if active else {}
             ep["atr_at_entry"] = sig_rec.atr_at_entry or sl_dist / 1.5
+            risk_pct = float(ep.get("risk_pct") or default_risk_pct)
+            ep["risk_pct"] = risk_pct
+            tp2_price = sig_rec.tp2_price if sig_rec.tp2_price is not None else sig_rec.entry_price * 9999
+            signal = Signal(
+                symbol=sig_rec.symbol,
+                market=market,
+                strategy=sig_rec.strategy,
+                direction=sig_rec.direction,
+                entry=sig_rec.entry_price,
+                entry_type="market_close",
+                sl=sig_rec.sl_price,
+                tp1=sig_rec.tp1_price,
+                tp2=tp2_price,
+                tp3=None,
+                atr=ep["atr_at_entry"],
+                rr=2.0,
+                score=100.0,
+                sl_atr_mult=float(ep.get("sl_atr_mult", 1.5) or 1.5),
+                tp1_atr_mult=float(ep.get("tp1_atr_mult", 3.0) or 3.0),
+                tp2_atr_mult=float(ep.get("tp2_atr_mult", 999.0) or 999.0),
+                trail_atr_mult=float(ep.get("trail_atr_mult", 999.0) or 999.0),
+                be_trigger_atr_mult=float(ep.get("be_trigger_atr_mult", 999.0) or 999.0),
+                tp1_partial_pct=float(ep.get("tp1_partial_pct", 1.0) or 1.0),
+                tp2_partial_pct=float(ep.get("tp2_partial_pct", 0.0) or 0.0),
+                ema_exit_period=int(ep.get("ema_exit_period", 0) or 0),
+                hard_stop_mode=str(ep.get("hard_stop_mode", "trail") or "trail"),
+                risk_pct=risk_pct,
+                max_bars=int(ep.get("max_bars", 0) or 0),
+            )
+            if not risk_policy.approve(signal, equity, current_heat, ep):
+                continue
+            shares = risk_policy.size(equity, signal, ep)
+            if shares <= 0:
+                continue
 
             db.add(PaperPositionModel(
                 market=market, symbol=sig_rec.symbol,
@@ -2917,6 +2963,7 @@ def cmd_paper_update(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             sig_rec.status = "opened"
             open_count += 1
             strat_counts[sig_rec.strategy] = strat_counts.get(sig_rec.strategy, 0) + 1
+            current_heat += risk_pct
             opened_count += 1
             print(f"  OPEN  {sig_rec.symbol:<12} {sig_rec.strategy:<22} entry={sig_rec.entry_price:.4f}  shares={shares:.2f}")
 
