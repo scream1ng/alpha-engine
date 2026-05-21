@@ -763,6 +763,7 @@ const nav = path => {
 };
 const DISABLED_STRATEGY_IDS = new Set(['narrow_range']);
 const isVisibleStrategy = strat => !!strat && !DISABLED_STRATEGY_IDS.has(strat.id);
+const isApprovedStrategy = strat => isVisibleStrategy(strat) && strat.approved === true;
 const pill = r => {
   const cls = r === 'uptrend' ? 'uptrend' : r === 'choppy' ? 'choppy' : 'downtrend';
   const lbl = r === 'uptrend' ? '▲ UPTREND' : r === 'choppy' ? '≈ CHOPPY' : '▼ DOWNTREND';
@@ -799,26 +800,27 @@ function addDays(ymd, days) {
   return d.toISOString().slice(0, 10);
 }
 
-function collectPassingEntries(rm, optLookup, allIds) {
+function collectApprovedEntries(rm, strats) {
   const REGIMES = ['uptrend','choppy','downtrend'];
   const regimeRank = Object.fromEntries(REGIMES.map((reg, idx) => [reg, idx]));
-  const passEntries = [];
-  allIds.forEach(id => {
-    REGIMES.forEach(reg => {
-      const base = rm[id + '|' + reg];
-      if (base && base.pass) passEntries.push({id, reg, base, opt: optLookup[id + '|' + reg] || null});
-    });
-  });
-  passEntries.sort((a, b) => {
+  const approvedEntries = (strats || [])
+    .filter(isApprovedStrategy)
+    .map(opt => ({
+      id: opt.id,
+      reg: opt.regime,
+      base: rm[opt.id + '|' + opt.regime] || null,
+      opt,
+    }));
+  approvedEntries.sort((a, b) => {
     const ar = regimeRank[a.reg] ?? 99;
     const br = regimeRank[b.reg] ?? 99;
     if (ar !== br) return ar - br;
-    const ac = a.opt ? a.opt.calmar : a.base.calmar;
-    const bc = b.opt ? b.opt.calmar : b.base.calmar;
+    const ac = a.opt ? a.opt.calmar : (a.base ? a.base.calmar : 0);
+    const bc = b.opt ? b.opt.calmar : (b.base ? b.base.calmar : 0);
     if ((bc || 0) !== (ac || 0)) return (bc || 0) - (ac || 0);
     return sLabel(a.id).localeCompare(sLabel(b.id));
   });
-  return passEntries;
+  return approvedEntries;
 }
 
 function buildYearMarks(points, xAt) {
@@ -973,8 +975,8 @@ function buildOverviewSummarySection(data, passEntries, cur) {
         '<div class="card-body">' +
           '<div class="story-top">' +
             '<div class="story-copy">' +
-              '<div class="story-title">5-year realised equity with regime context</div>' +
-              '<div class="story-sub">Equal-capital sleeves across all passing strategy-regime pairs. Equity moves only when trades close, so the line shows realised compounding rather than mark-to-market noise. Sleeves are selected by entry regime, which means exits can still realise P&amp;L after the benchmark has already rotated into the next regime.</div>' +
+              '<div class="story-title">5-year realised equity for the approved engine</div>' +
+              '<div class="story-sub">Equal-capital sleeves across stability-approved, optimised strategy-regime pairs. Equity moves only when trades close, so the line shows realised compounding rather than mark-to-market noise. Sleeves are selected by entry regime, which means exits can still realise P&amp;L after the benchmark has already rotated into the next regime.</div>' +
             '</div>' +
             '<div class="story-metrics">' +
               '<div class="story-metric"><div class="lbl">Final Equity</div><div class="val">' + money(model.finalEquity) + '</div><div class="sub">' + pct(model.totalReturnPct, 1) + ' vs start</div></div>' +
@@ -1035,12 +1037,9 @@ function renderOverview() {
   const rm     = (data && data.regime_map) || {};
   const strats = ((data && data.strategies) || []).filter(isVisibleStrategy);
   const cur    = ((data && data.current_regime) || '').toLowerCase();
-  const allIds = [...new Set(Object.keys(rm).map(k => k.split('|')[0]).filter(id => !DISABLED_STRATEGY_IDS.has(id)))].sort();
-  const optLookup = {};
-  strats.forEach(s => { optLookup[s.id + '|' + s.regime] = s; });
-  const passEntries = collectPassingEntries(rm, optLookup, allIds);
+  const approvedEntries = collectApprovedEntries(rm, strats);
 
-  if (!allIds.length) { renderOverviewFallback(strats, cur); return; }
+  if (!approvedEntries.length) { renderOverviewFallback([], cur); return; }
 
   const REGIMES = [
     {key:'uptrend',   label:'▲ Uptrend'},
@@ -1051,27 +1050,24 @@ function renderOverview() {
   let cols = '';
   REGIMES.forEach(({key, label}) => {
     const isActive = cur === key;
-    // Build entries sorted: PASS first by ret_pct desc, then FAIL by calmar desc
-    const entries = allIds.map(id => {
-      const base = rm[id + '|' + key];
-      return base ? {id, base, opt: optLookup[id + '|' + key], pass: base.pass} : null;
-    }).filter(Boolean).sort((a, b) => {
-      if (a.pass !== b.pass) return b.pass - a.pass;
-      const ar = a.opt ? a.opt.ret_pct : a.base.calmar * 10;
-      const br = b.opt ? b.opt.ret_pct : b.base.calmar * 10;
+    const entries = approvedEntries
+      .filter(entry => entry.reg === key)
+      .sort((a, b) => {
+      const ar = a.opt ? a.opt.ret_pct : ((a.base && a.base.calmar) || 0) * 10;
+      const br = b.opt ? b.opt.ret_pct : ((b.base && b.base.calmar) || 0) * 10;
       return br - ar;
     });
-    const passCount = entries.filter(e => e.pass).length;
+    const approvedCount = entries.length;
 
     let cards = '';
-    entries.forEach(({id, base, opt, pass}) => {
+    entries.forEach(({id, base, opt}) => {
       const calmar  = opt ? opt.calmar  : base.calmar;
       const wr      = opt ? opt.win_rate : base.wr;
       const ntrades = opt ? opt.symbols.reduce((a,s) => a + s.trade_count, 0) : base.trade_count;
-      const href    = pass && opt ? hashHref('strategy/' + id + '/' + key) : '';
+      const href    = opt ? hashHref('strategy/' + id + '/' + key) : '';
       cards +=
-        '<' + (href ? 'a href="' + href + '"' : 'div') + ' class="strat-card ' + (pass ? 'pass ' + (opt ? 'clickable' : '') : 'fail') + '">' +
-          '<div class="sc-name">' + sLabel(id) + ' <span class="badge ' + (pass ? 'pass' : 'fail') + '">' + (pass ? 'PASS' : 'FAIL') + '</span></div>' +
+        '<' + (href ? 'a href="' + href + '"' : 'div') + ' class="strat-card pass ' + (opt ? 'clickable' : '') + '">' +
+          '<div class="sc-name">' + sLabel(id) + ' <span class="badge pass">APPROVED</span></div>' +
           '<div class="sc-metrics">' +
             '<div class="sc-m"><div class="sc-ml">Calmar</div><div class="sc-mv neu">' + fmt(calmar, 2) + '</div></div>' +
             '<div class="sc-m"><div class="sc-ml">Win Rate</div><div class="sc-mv neu">' + fmt(wr, 1) + '%</div></div>' +
@@ -1079,24 +1075,24 @@ function renderOverview() {
           '</div>' +
         '</' + (href ? 'a' : 'div') + '>';
     });
-    if (!cards) cards = '<div class="no-edge">No strategies in this regime</div>';
+    if (!cards) cards = '<div class="no-edge">No approved strategies in this regime</div>';
 
     cols +=
       '<div class="regime-col' + (isActive ? ' active-col' : '') + '">' +
         '<div class="rcol-hdr ' + key + '">' +
           '<span class="rcol-title ' + key + '">' + label + '</span>' +
           (isActive ? '<span class="active-mark">ACTIVE</span>' : '') +
-          '<span class="rcol-ct">' + passCount + '/' + allIds.length + ' PASS</span>' +
+          '<span class="rcol-ct">' + approvedCount + ' approved</span>' +
         '</div>' +
         '<div class="rcol-body">' + cards + '</div>' +
       '</div>';
   });
 
-  const summarySection = buildOverviewSummarySection(data, passEntries, cur);
-  const tableSection = buildPerfTable(rm, optLookup, allIds, cur, passEntries);
+  const summarySection = buildOverviewSummarySection(data, approvedEntries, cur);
+  const tableSection = buildPerfTable(rm, cur, approvedEntries);
 
   document.getElementById('page').innerHTML =
-    '<div class="ov-bar"><div class="ov-inner"><h2>Regime Overview</h2>' + (cur ? '<span class="sub">Current regime: <strong>' + cur + '</strong></span>' : '') + '</div></div>' +
+    '<div class="ov-bar"><div class="ov-inner"><h2>Engine Overview</h2>' + (cur ? '<span class="sub">Current regime: <strong>' + cur + '</strong></span>' : '') + '</div></div>' +
     summarySection +
     '<div style="padding-top:20px">' + tableSection + '</div>' +
     '<div class="ov-grid">' + cols + '</div>';
@@ -1113,21 +1109,21 @@ function renderOverviewFallback(strats, cur) {
     let cards = match.map(s => {
       const n = s.symbols.reduce((a,x) => a + x.trade_count, 0);
       return '<a class="strat-card pass clickable" href="' + hashHref('strategy/' + s.id + '/' + reg) + '">' +
-        '<div class="sc-name">' + sLabel(s.id) + ' <span class="badge pass">PASS</span></div>' +
+        '<div class="sc-name">' + sLabel(s.id) + ' <span class="badge pass">APPROVED</span></div>' +
         '<div class="sc-metrics">' +
           '<div class="sc-m"><div class="sc-ml">Calmar</div><div class="sc-mv neu">' + fmt(s.calmar,2) + '</div></div>' +
           '<div class="sc-m"><div class="sc-ml">Ret/yr</div><div class="sc-mv ' + clr(s.ret_pct) + '">' + pct(s.ret_pct) + '</div></div>' +
           '<div class="sc-m"><div class="sc-ml">Trades</div><div class="sc-mv neu">' + n + '</div></div>' +
         '</div></a>';
     }).join('');
-    if (!cards) cards = '<div class="no-edge">No strategies passed</div>';
+    if (!cards) cards = '<div class="no-edge">No approved strategies yet</div>';
     cols += '<div class="regime-col' + (cur===reg ? ' active-col' : '') + '">' +
       '<div class="rcol-hdr ' + reg + '"><span class="rcol-title ' + reg + '">' + LABELS[reg] + '</span>' +
       (cur===reg ? '<span class="active-mark">ACTIVE</span>' : '') + '</div>' +
       '<div class="rcol-body">' + cards + '</div></div>';
   });
   document.getElementById('page').innerHTML =
-    '<div class="ov-bar"><div class="ov-inner"><h2>Strategy Overview</h2><span class="sub">' + ((data && data.market)||'') + ' &nbsp;·&nbsp; ' + ((data && data.generated)||'') + '</span></div></div>' +
+    '<div class="ov-bar"><div class="ov-inner"><h2>Engine Overview</h2><span class="sub">' + ((data && data.market)||'') + ' &nbsp;·&nbsp; ' + ((data && data.generated)||'') + ' &nbsp;·&nbsp; no stability-approved pairs yet</span></div></div>' +
     '<div class="ov-grid">' + cols + '</div>';
 }
 
@@ -1176,12 +1172,15 @@ function optYearlyStats(opt) {
   return yearly;
 }
 
-function buildPerfTable(rm, optLookup, allIds, cur, passEntriesOverride) {
-  const passEntries = Array.isArray(passEntriesOverride) ? [...passEntriesOverride] : collectPassingEntries(rm, optLookup, allIds);
+function buildPerfTable(rm, cur, approvedEntries) {
+  const passEntries = Array.isArray(approvedEntries) ? [...approvedEntries] : [];
   if (!passEntries.length) return '';
 
   const allYears = new Set();
-  passEntries.forEach(({base}) => Object.keys(base.yearly||{}).forEach(y => allYears.add(y)));
+  passEntries.forEach(({base, opt}) => {
+    Object.keys((base && base.yearly) || {}).forEach(y => allYears.add(y));
+    Object.keys(optYearlyStats(opt) || {}).forEach(y => allYears.add(y));
+  });
   const years = [...allYears].sort();
 
   let tCal=0, tDd=0, tWr=0, n=0;
@@ -1198,7 +1197,7 @@ function buildPerfTable(rm, optLookup, allIds, cur, passEntriesOverride) {
     const calmar  = opt ? opt.calmar   : base.calmar;
     const dd      = opt ? opt.max_dd   : base.max_dd;
     const wr      = opt ? opt.win_rate : base.wr;
-    const yearly  = (opt ? optYearly(opt, years) : null) || base.yearly || {};
+    const yearly  = (opt ? optYearly(opt, years) : null) || ((base && base.yearly) || {});
     const isLive  = cur && reg === cur;
     tCal += calmar||0; tDd += dd||0; tWr += wr||0; n++;
 
@@ -1255,7 +1254,7 @@ function buildPerfTable(rm, optLookup, allIds, cur, passEntriesOverride) {
   return (
     '<div style="padding:0 20px 24px;max-width:1200px;margin:0 auto;width:100%">' +
       '<div class="card">' +
-        '<div class="card-hdr">5-Year Performance — All Passing Strategies (Optimised)' + (cur ? '<span style="float:right;font-weight:400;font-size:11px;color:var(--text2)">Current regime: <strong style="color:var(--green)">' + cur + '</strong> &nbsp;·&nbsp; ' + passEntries.filter(e => e.reg === cur).length + ' active now</span>' : '') + '</div>' +
+        '<div class="card-hdr">5-Year Performance — Approved Engine (Optimised + Stable)' + (cur ? '<span style="float:right;font-weight:400;font-size:11px;color:var(--text2)">Current regime: <strong style="color:var(--green)">' + cur + '</strong> &nbsp;·&nbsp; ' + passEntries.filter(e => e.reg === cur).length + ' approved now</span>' : '') + '</div>' +
         '<div style="overflow-x:auto">' +
           '<table class="perf-table">' +
             '<thead><tr>' +

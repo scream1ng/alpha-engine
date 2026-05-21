@@ -146,7 +146,14 @@ def _build_opt_combos() -> list[dict]:
     return combos
 
 
-def _sync_active_roster_from_optimise(market: str, as_of: date) -> dict:
+def _sync_active_roster_from_pairs(
+    market: str,
+    as_of: date,
+    approved_pairs: set[tuple[str, str]],
+    *,
+    source: str,
+    source_label: str,
+) -> dict:
     from db.models import RegimeOptimiseModel, SessionLocal
 
     db = SessionLocal()
@@ -169,11 +176,12 @@ def _sync_active_roster_from_optimise(market: str, as_of: date) -> dict:
             "is_calmar": float(row.is_calmar or 0.0),
         }
         for row in opt_rows
+        if (row.strategy, row.regime) in approved_pairs
     ]
     write_active_roster_snapshot(market, as_of, desired_payload)
     result_map = sync_active_roster_file_to_db(
         as_of=as_of,
-        source="optimise",
+        source=source,
         record_noop=True,
         market_filter=market,
     )
@@ -184,7 +192,7 @@ def _sync_active_roster_from_optimise(market: str, as_of: date) -> dict:
         "retired": [],
     })
     summary_lines = [
-        f"active roster synced automatically: active={result['active_count']} +{len(result['added'])} ~{len(result['changed'])} -{len(result['retired'])}",
+        f"active roster synced from {source_label}: active={result['active_count']} +{len(result['added'])} ~{len(result['changed'])} -{len(result['retired'])}",
     ]
     for row in result["added"]:
         summary_lines.append(f"+ {row['strategy']}|{row['regime']} -> `{row['new_combo'] or 'n/a'}`")
@@ -1245,13 +1253,12 @@ def cmd_optimise_regime(adapter: MarketAdapter, args: argparse.Namespace) -> Non
     if strategy_filter:
         summary_lines.append(f"active roster sync skipped because optimise ran with --strategy={strategy_filter}")
     else:
-        sync_result = _sync_active_roster_from_optimise(market, today)
-        summary_lines.extend(sync_result["summary_lines"])
+        summary_lines.append("active roster sync deferred until stability approval")
     _write_run_log(
         market,
         "optimise",
         summary_lines,
-        next_step="review active history, then run scan to generate live signals",
+        next_step="run stability to approve live roster, then generate live signals",
     )
     print(f"\n  Markdown: {report_path}")
 
@@ -1685,6 +1692,18 @@ def cmd_stability_report(adapter: MarketAdapter, args: argparse.Namespace) -> No
 
     summary_lines = []
     shortlist = [row for row in optimised_rows if row["verdict"] in {"stable", "mixed"}]
+    stable_pairs = {
+        (str(row["strategy"]), str(row["regime"]))
+        for row in optimised_rows
+        if row["verdict"] == "stable"
+    }
+    sync_result = _sync_active_roster_from_pairs(
+        market,
+        today,
+        stable_pairs,
+        source="stability",
+        source_label="stability-approved pairs",
+    )
     summary_lines.append(
         "episodes: "
         + ", ".join(f"{regime}={regime_episode_counts.get(regime, 0)}" for regime in REGIMES)
@@ -1699,11 +1718,12 @@ def cmd_stability_report(adapter: MarketAdapter, args: argparse.Namespace) -> No
             )
     else:
         summary_lines.append("no optimised pairs passed the stability shortlist")
+    summary_lines.extend(sync_result["summary_lines"])
     _write_run_log(
         market,
         "stability-report",
         summary_lines,
-        next_step="chart-export on stable shortlist, then inspect best and worst regime episodes",
+        next_step="chart-export, then inspect approved and watchlist pairs visually",
     )
     print(f"\n  Markdown: {report_path}")
 
@@ -2438,6 +2458,8 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         return
 
     regime_date_map: dict = {row.date: row.regime for row in label_rows}
+    stability_rows = _parse_stability_winners(f"reports/{market}_stability_latest.md")
+    stability_map = {(row["strategy"], row["regime"]): row for row in stability_rows}
 
     # Build regime overview map (all strategy×regime pairs from base run)
     regime_map: dict = {}
@@ -2506,6 +2528,8 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         s_id   = opt_row.strategy
         regime = opt_row.regime
         params = opt_row.params or {}
+        stability_row = stability_map.get((s_id, regime))
+        approval_status = str((stability_row or {}).get("verdict") or "unreviewed")
         print(f"  {s_id}|{regime} [{opt_row.best_combo}]", flush=True)
 
         # All regime trades — full 5yr window
@@ -2613,6 +2637,8 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             "ret_pct":          round(float(opt_row.is_annual_return or 0) * 100, 1),
             "win_rate":         win_rate_out,
             "max_dd":           max_dd_out,
+            "approval_status":  approval_status,
+            "approved":         approval_status == "stable",
             "params":           exported_params,
             "indicator_params": indicator_params,
             "symbols":          symbols_out,
@@ -2649,6 +2675,10 @@ def cmd_chart_export(adapter: MarketAdapter, args: argparse.Namespace) -> None:
         "regime_map":     regime_map,
         "regime_periods": regime_periods,
         "regime_year_weights": regime_year_weights,
+        "stability_map":  {
+            f"{row['strategy']}|{row['regime']}": row["verdict"]
+            for row in stability_rows
+        },
         "strategies":     strategies_out,
     }
 
@@ -2705,15 +2735,15 @@ def _export_chart_export_markdown(
         "",
         "## Exported Strategies",
         "",
-        "| Strategy | Regime | Combo | Calmar | Ret% | DD | Symbols | Trades |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Strategy | Regime | Verdict | Combo | Calmar | Ret% | DD | Symbols | Trades |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
 
     for row in sorted(strategies_out, key=lambda x: -(x.get("calmar") or 0)):
         symbol_count = len(row.get("symbols") or [])
         trade_count = sum(s.get("trade_count", 0) for s in row.get("symbols") or [])
         lines.append(
-            f"| {row['id']} | {row['regime']} | `{row.get('combo') or ''}` | "
+            f"| {row['id']} | {row['regime']} | {row.get('approval_status') or 'unreviewed'} | `{row.get('combo') or ''}` | "
             f"{row.get('calmar', 0):.2f} | {row.get('ret_pct', 0):+.1f}% | "
             f"{row.get('max_dd', 0):.1f}% | {symbol_count} | {trade_count} |"
         )
@@ -2722,7 +2752,7 @@ def _export_chart_export_markdown(
         "",
         "## AI Suggestions",
         "",
-        "- Compare the viewer against the latest optimise winners and confirm exits match the chosen combo labels.",
+        "- Use Overview as the approved engine view: only `stable` pairs should count toward deployable performance.",
         "- Inspect top-PnL and worst-PnL symbols first; chart fidelity problems usually show up there.",
         "- If a chart looks wrong, trace the pair back to `reports/run_log.md`, then `reports/history/` for the prior optimise run.",
         "",
@@ -3275,12 +3305,13 @@ def cmd_history(adapter: MarketAdapter, args: argparse.Namespace) -> None:
 
 
 def cmd_optimise_full(adapter: MarketAdapter, args: argparse.Namespace) -> None:
-    """Optimise pipeline: regime → optimise → stability → chart-export."""
-    _banner = lambda n, t: print(f"\n{'='*60}\n  STEP {n}/4 — {t}\n{'='*60}")
+    """Optimise pipeline: regime → optimise → stability → report → chart-export."""
+    _banner = lambda n, t: print(f"\n{'='*60}\n  STEP {n}/5 — {t}\n{'='*60}")
     _banner(1, "regime");          cmd_regime(adapter, args)
     _banner(2, "optimise");        cmd_optimise_regime(adapter, args)
     _banner(3, "stability");       cmd_stability_report(adapter, args)
-    _banner(4, "chart-export");    cmd_chart_export(adapter, args)
+    _banner(4, "report");          cmd_report(adapter, args)
+    _banner(5, "chart-export");    cmd_chart_export(adapter, args)
 
 
 def cmd_run_all(adapter: MarketAdapter, args: argparse.Namespace) -> None:
