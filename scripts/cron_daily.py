@@ -158,8 +158,14 @@ def run_markets(markets: list[str]) -> dict:
             adapter = _get_adapter(market)
             cmd_scan(adapter, args)
             _log_pipeline_event(market, "scan", "ok", _scan_summary(market, today))
-        except Exception:
-            _log_pipeline_event(market, "scan", "failed", {"summary": f"scan {today.isoformat()} failed"})
+        except Exception as _scan_exc:
+            import traceback as _tb
+            _log_pipeline_event(market, "scan", "failed", {
+                "summary": f"scan {today.isoformat()} failed",
+                "error": type(_scan_exc).__name__,
+                "detail": str(_scan_exc)[:400],
+                "traceback": _tb.format_exc()[-800:],
+            })
             logger.exception("scan failed for %s", market)
             continue
 

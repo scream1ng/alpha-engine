@@ -3054,7 +3054,11 @@ def cmd_scan(adapter: MarketAdapter, args: argparse.Namespace) -> None:
             continue
         df = _attach_benchmark(df, bm_close)
         df.attrs = {"symbol": symbol, "market": market}
-        df = _precompute_indicators(df)
+        try:
+            df = _precompute_indicators(df)
+        except Exception as exc:
+            logger.debug("indicator precompute failed %s: %s", symbol, exc)
+            continue
         df.attrs = {"symbol": symbol, "market": market}
         all_dfs[symbol] = df
 
