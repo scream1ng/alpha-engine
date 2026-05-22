@@ -506,6 +506,9 @@ async def trigger_scan(market: str = Query(..., min_length=1, max_length=16)) ->
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Scan timed out after 120s")
+    except Exception as exc:
+        import traceback
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-800:]}")
 
     db = SessionLocal()
     try:

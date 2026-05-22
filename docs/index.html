@@ -3170,9 +3170,11 @@ async function runScanNow(market) {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const errText = data.detail || res.status;
     btn.textContent = 'Failed';
+    btn.title = typeof errText === 'string' ? errText : JSON.stringify(errText);
     btn.style.background = 'var(--red,#cf222e)';
-    setTimeout(resetBtn, 3000);
+    setTimeout(() => { btn.title = ''; resetBtn(); }, 6000);
   } else {
     btn.textContent = data.outcome === 'ok' ? 'Done ✓' : 'Done (check logs)';
     btn.style.background = data.outcome === 'ok' ? 'var(--green,#1a7f37)' : '#f59e0b';
