@@ -3147,13 +3147,16 @@ async function renderPortfolioPage() {
   pg.innerHTML = html;
 }
 
-async function runScanNow(market) {
-  const btn = document.getElementById('scan-run-btn');
+async function runScanNow(market, btnId) {
+  const btn = document.getElementById(btnId || 'scan-run-btn');
   if (!btn) return;
+  const origText = btn.textContent;
+  const origBg   = btn.style.background;
+  const origColor = btn.style.color;
   btn.disabled = true;
   btn.textContent = 'Running…';
   btn.style.opacity = '0.6';
-  const resetBtn = () => { btn.textContent = 'Run Scan'; btn.disabled = false; btn.style.opacity = '1'; btn.style.background = 'var(--accent,#0969da)'; };
+  const resetBtn = () => { btn.textContent = origText; btn.disabled = false; btn.style.opacity = '1'; btn.style.background = origBg; btn.style.color = origColor; };
   let res, lastErr;
   const path = '/api/scan/run?market=' + encodeURIComponent(market);
   for (const base of apiBaseCandidates()) {
@@ -3203,7 +3206,10 @@ async function renderTerminalPage() {
   pg.innerHTML = '<div class="term-wrap">' +
     '<div class="term-head">' +
       '<div><div style="font-size:14px;font-weight:700">Terminal — All Markets</div><div class="term-note">Default scheduler: 10:00 UTC. Equities run Mon-Fri, commodity Sun-Fri, crypto daily.</div></div>' +
-      '<button id="scan-run-btn" onclick="runScanNow(\'all\')" style="margin-left:auto;padding:6px 16px;border-radius:6px;border:none;background:var(--accent,#0969da);color:#fff;cursor:pointer;font-size:12px;font-weight:600;transition:opacity .15s">Run All</button>' +
+      '<div style="display:flex;gap:8px;margin-left:auto">' +
+        '<button id="scan-run-btn" onclick="runScanNow(\'' + (activeMarketKey()||'th').toLowerCase() + '\')" style="padding:6px 16px;border-radius:6px;border:1px solid var(--accent,#0969da);background:transparent;color:var(--accent,#0969da);cursor:pointer;font-size:12px;font-weight:600;transition:opacity .15s">Run ' + (activeMarketKey()||'').toUpperCase() + '</button>' +
+        '<button id="scan-all-btn" onclick="runScanNow(\'all\',\'scan-all-btn\')" style="padding:6px 16px;border-radius:6px;border:none;background:var(--accent,#0969da);color:#fff;cursor:pointer;font-size:12px;font-weight:600;transition:opacity .15s">Run All</button>' +
+      '</div>' +
     '</div>' +
     '<div class="term-shell">' +
       '<div class="term-bar">pipeline_logs · latest 15 rows · all markets</div>' +
