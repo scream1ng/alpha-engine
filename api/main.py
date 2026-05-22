@@ -37,7 +37,7 @@ app = FastAPI(title="Alpha Engine API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",")],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -480,6 +480,45 @@ def paper_portfolio(market: str = Query(..., min_length=1, max_length=16)) -> di
                 }
                 for t in recent_trades
             ],
+        }
+    finally:
+        db.close()
+
+
+_SCAN_MARKETS = {"th", "us", "au", "crypto", "commodity"}
+
+
+@app.post("/api/scan/run")
+async def trigger_scan(market: str = Query(..., min_length=1, max_length=16)) -> dict[str, Any]:
+    """Manually trigger a scan + paper-update for one market."""
+    import asyncio
+    from scripts.cron_daily import run_markets
+
+    m = market.strip().lower()
+    if m not in _SCAN_MARKETS:
+        raise HTTPException(status_code=400, detail=f"Unknown market: {m}")
+
+    loop = asyncio.get_event_loop()
+    try:
+        await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: run_markets([m])),
+            timeout=120.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Scan timed out after 120s")
+
+    db = SessionLocal()
+    try:
+        log = (
+            db.query(PipelineLog)
+            .filter_by(market=m, stage="scan")
+            .order_by(PipelineLog.id.desc())
+            .first()
+        )
+        return {
+            "market": m,
+            "outcome": log.outcome if log else "unknown",
+            "details": log.details if log else {},
         }
     finally:
         db.close()
