@@ -3182,15 +3182,21 @@ async function runScanNow(market) {
   }
 }
 
-async function renderTerminalPage() {
-  const pg     = document.getElementById('page');
-  const market = activeMarketKey();
-  if (!market) { pg.innerHTML = _liveUnavail('No market data loaded.'); return; }
-  const mLow = market.toLowerCase();
+let _terminalMarket = 'all';
+async function renderTerminalPage(mOverride) {
+  const pg = document.getElementById('page');
+  if (mOverride !== undefined) _terminalMarket = mOverride;
+  const mLow = _terminalMarket;
+  const label = mLow === 'all' ? 'All Markets' : mLow.toUpperCase();
+  const TERM_MARKETS = ['all', 'th', 'us', 'au', 'crypto', 'commodity'];
+  const tabsHtml = TERM_MARKETS.map(m => {
+    const active = m === mLow ? 'style="background:var(--accent,#0969da);color:#fff;border-color:var(--accent,#0969da)"' : '';
+    return `<button onclick="renderTerminalPage('${m}')" style="padding:4px 12px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:11px;font-weight:600" ${active}>${m === 'all' ? 'All' : m.toUpperCase()}</button>`;
+  }).join('');
   pg.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading terminal…</div>';
   let rows;
   try {
-    rows = await fetchApiJson('/api/logs?market=' + market.toLowerCase() + '&limit=15');
+    rows = await fetchApiJson('/api/logs?market=' + mLow + '&limit=15');
   } catch(e) {
     pg.innerHTML = _liveUnavail(e.message); return;
   }
@@ -3203,10 +3209,13 @@ async function renderTerminalPage() {
     const mk = row.market === 'all' ? 'ALL' : row.market.toUpperCase();
     return '<div class="term-line"><span class="ts">[' + ts + ']</span> <span class="mk">' + mk + '</span> <span class="' + statusClass(row) + '">' + row.stage + '</span> ' + row.message + '</div>';
   }).join('');
+  const btnLabel = mLow === 'all' ? 'Run All' : 'Run Scan';
   pg.innerHTML = '<div class="term-wrap">' +
     '<div class="term-head">' +
-      '<div><div style="font-size:14px;font-weight:700">Terminal — ' + market + '</div><div class="term-note">Default scheduler: 10:00 UTC. Equities run Mon-Fri, commodity Sun-Fri, crypto daily.</div></div>' +
-      '<button id="scan-run-btn" onclick="runScanNow(\'' + mLow + '\')" style="margin-left:auto;padding:6px 16px;border-radius:6px;border:none;background:var(--accent,#0969da);color:#fff;cursor:pointer;font-size:12px;font-weight:600;transition:opacity .15s">Run Scan</button>' +
+      '<div><div style="font-size:14px;font-weight:700">Terminal — ' + label + '</div><div class="term-note">Default scheduler: 10:00 UTC. Equities run Mon-Fri, commodity Sun-Fri, crypto daily.</div></div>' +
+      '<div style="display:flex;gap:6px;align-items:center;margin-left:auto">' + tabsHtml +
+        '<button id="scan-run-btn" onclick="runScanNow(\'' + mLow + '\')" style="padding:6px 16px;border-radius:6px;border:none;background:var(--accent,#0969da);color:#fff;cursor:pointer;font-size:12px;font-weight:600;transition:opacity .15s">' + btnLabel + '</button>' +
+      '</div>' +
     '</div>' +
     '<div class="term-shell">' +
       '<div class="term-bar">pipeline_logs · latest 15 rows · postgres-backed when DATABASE_URL is Postgres</div>' +

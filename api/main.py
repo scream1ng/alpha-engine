@@ -366,10 +366,11 @@ def pipeline_logs(
     db = SessionLocal()
     try:
         q = db.query(PipelineLog)
-        if include_global:
-            q = q.filter((PipelineLog.market == m) | (PipelineLog.market == "all"))
-        else:
-            q = q.filter(PipelineLog.market == m)
+        if m != "all":
+            if include_global:
+                q = q.filter((PipelineLog.market == m) | (PipelineLog.market == "all"))
+            else:
+                q = q.filter(PipelineLog.market == m)
         rows = q.order_by(PipelineLog.logged_at.desc()).limit(limit).all()
         return [
             {
@@ -495,23 +496,38 @@ async def trigger_scan(market: str = Query(..., min_length=1, max_length=16)) ->
     from scripts.cron_daily import run_markets
 
     m = market.strip().lower()
-    if m not in _SCAN_MARKETS:
+    markets_to_run = list(_SCAN_MARKETS) if m == "all" else [m]
+    if m != "all" and m not in _SCAN_MARKETS:
         raise HTTPException(status_code=400, detail=f"Unknown market: {m}")
 
     loop = asyncio.get_event_loop()
     try:
         await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: run_markets([m])),
-            timeout=120.0,
+            loop.run_in_executor(None, lambda: run_markets(markets_to_run)),
+            timeout=300.0,
         )
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Scan timed out after 120s")
+        raise HTTPException(status_code=504, detail="Scan timed out after 300s")
     except Exception as exc:
         import traceback
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-800:]}")
 
     db = SessionLocal()
     try:
+        if m == "all":
+            logs = (
+                db.query(PipelineLog)
+                .filter(PipelineLog.stage == "scan")
+                .order_by(PipelineLog.id.desc())
+                .limit(len(_SCAN_MARKETS))
+                .all()
+            )
+            failed = [l.market for l in logs if l.outcome == "failed"]
+            return {
+                "market": "all",
+                "outcome": "ok" if not failed else "failed",
+                "details": {"failed_markets": failed},
+            }
         log = (
             db.query(PipelineLog)
             .filter_by(market=m, stage="scan")
