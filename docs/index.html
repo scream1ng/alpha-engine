@@ -3161,6 +3161,7 @@ async function runScanNow(market) {
     if (!res.ok) {
       btn.textContent = 'Failed';
       btn.style.background = 'var(--red)';
+      setTimeout(() => { btn.textContent = 'Run Scan'; btn.disabled = false; btn.style.opacity = '1'; btn.style.background = ''; }, 3000);
     } else {
       btn.textContent = data.outcome === 'ok' ? 'Done ✓' : 'Done (check logs)';
       btn.style.background = data.outcome === 'ok' ? 'var(--green,#22c55e)' : '#f59e0b';
@@ -3169,20 +3170,15 @@ async function runScanNow(market) {
   } catch(e) {
     btn.textContent = 'Error';
     btn.style.background = 'var(--red)';
+    setTimeout(() => { btn.textContent = 'Run Scan'; btn.disabled = false; btn.style.opacity = '1'; btn.style.background = ''; }, 3000);
   }
-  setTimeout(() => {
-    if (!btn) return;
-    btn.textContent = 'Run Scan';
-    btn.disabled = false;
-    btn.style.opacity = '1';
-    btn.style.background = '';
-  }, 3000);
 }
 
 async function renderTerminalPage() {
   const pg     = document.getElementById('page');
   const market = activeMarketKey();
   if (!market) { pg.innerHTML = _liveUnavail('No market data loaded.'); return; }
+  const mLow = market.toLowerCase();
   pg.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text3)">Loading terminal…</div>';
   let rows;
   try {
@@ -3190,7 +3186,7 @@ async function renderTerminalPage() {
   } catch(e) {
     pg.innerHTML = _liveUnavail(e.message); return;
   }
-  const filled = rows.slice(0, 15);
+  const filled = (Array.isArray(rows) ? rows : []).slice(0, 15);
   while (filled.length < 15) filled.push(null);
   const statusClass = row => row.outcome === 'failed' ? 'fail' : row.outcome === 'running' ? 'run' : 'ok';
   const lineHtml = filled.map(row => {
