@@ -78,5 +78,4 @@ reports/*
 
 # Local prototype / spike files not wired into the main workflow
 app/main.py
-core/tick.py
 validation/intraday_entry.py
