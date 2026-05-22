@@ -722,7 +722,7 @@
       ]
     },
     "th": {
-      "generated": "2026-05-17",
+      "generated": "2026-05-22",
       "strategies": [
         {
           "is_calmar": 2.3191173711655435,
@@ -750,83 +750,6 @@
           "regime": "downtrend",
           "source_combo": "kc2p0_tp1_50pct_ema10_r75_s4",
           "strategy": "bb_squeeze"
-        },
-        {
-          "is_calmar": 1.794420126319159,
-          "params": {
-            "be_after_bars": 0,
-            "be_trigger_atr_mult": 999.0,
-            "ema_exit_period": 0,
-            "fast_period": 10,
-            "hard_stop_mode": "trail",
-            "max_bars": 0,
-            "risk_pct": 0.005,
-            "rsm_min": 0,
-            "rvol_min": 1.2,
-            "sl_atr_mult": 1.5,
-            "slow_period": 20,
-            "str_max": 4,
-            "tp1_atr_mult": 3.0,
-            "tp1_partial_pct": 1.0,
-            "tp2_atr_mult": 999.0,
-            "tp2_partial_pct": 0.0,
-            "trail_atr_mult": 999.0,
-            "trend_period": 100
-          },
-          "regime": "uptrend",
-          "source_combo": "f10s20_original_s4",
-          "strategy": "ma_cross"
-        },
-        {
-          "is_calmar": 2.2458280462044975,
-          "params": {
-            "be_after_bars": 0,
-            "be_trigger_atr_mult": 999.0,
-            "ema_exit_period": 10,
-            "hard_stop_mode": "ema10",
-            "lookback": 5,
-            "max_bars": 0,
-            "psth": 0.005,
-            "risk_pct": 0.005,
-            "rsm_min": 75,
-            "rvol_min": 1.1,
-            "sl_atr_mult": 1.5,
-            "str_max": 0,
-            "tp1_atr_mult": 3.0,
-            "tp1_partial_pct": 0.5,
-            "tp2_atr_mult": 999.0,
-            "tp2_partial_pct": 0.0,
-            "trail_atr_mult": 999.0
-          },
-          "regime": "downtrend",
-          "source_combo": "lb5_tp1_50pct_ema10_r75",
-          "strategy": "pivot_breakout"
-        },
-        {
-          "is_calmar": 1.5163620692433466,
-          "params": {
-            "be_after_bars": 0,
-            "be_trigger_atr_mult": 999.0,
-            "consec_down_days": 2,
-            "ema_exit_period": 10,
-            "hard_stop_mode": "ema10",
-            "max_bars": 0,
-            "risk_pct": 0.005,
-            "rsi_threshold": 40,
-            "rsm_min": 0,
-            "rvol_min": 1.2,
-            "sl_atr_mult": 1.5,
-            "str_max": 4,
-            "support_lookback": 60,
-            "tp1_atr_mult": 3.0,
-            "tp1_partial_pct": 0.5,
-            "tp2_atr_mult": 999.0,
-            "tp2_partial_pct": 0.0,
-            "trail_atr_mult": 999.0
-          },
-          "regime": "downtrend",
-          "source_combo": "rsi40_tp1_50pct_ema10_s4",
-          "strategy": "reversal"
         }
       ]
     },
