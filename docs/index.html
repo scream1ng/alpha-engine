@@ -3153,24 +3153,30 @@ async function runScanNow(market) {
   btn.disabled = true;
   btn.textContent = 'Running…';
   btn.style.opacity = '0.6';
-  try {
-    const res = await fetch(apiUrl('/api/scan/run?market=' + encodeURIComponent(market)), {
-      method: 'POST', cache: 'no-store',
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      btn.textContent = 'Failed';
-      btn.style.background = 'var(--red)';
-      setTimeout(() => { btn.textContent = 'Run Scan'; btn.disabled = false; btn.style.opacity = '1'; btn.style.background = ''; }, 3000);
-    } else {
-      btn.textContent = data.outcome === 'ok' ? 'Done ✓' : 'Done (check logs)';
-      btn.style.background = data.outcome === 'ok' ? 'var(--green,#22c55e)' : '#f59e0b';
-      setTimeout(() => renderTerminalPage(), 600);
-    }
-  } catch(e) {
+  const resetBtn = () => { btn.textContent = 'Run Scan'; btn.disabled = false; btn.style.opacity = '1'; btn.style.background = 'var(--accent,#0969da)'; };
+  let res, lastErr;
+  const path = '/api/scan/run?market=' + encodeURIComponent(market);
+  for (const base of apiBaseCandidates()) {
+    try {
+      res = await fetch(apiUrl(path, base), { method: 'POST', cache: 'no-store' });
+      break;
+    } catch(e) { lastErr = e; }
+  }
+  if (!res) {
     btn.textContent = 'Error';
-    btn.style.background = 'var(--red)';
-    setTimeout(() => { btn.textContent = 'Run Scan'; btn.disabled = false; btn.style.opacity = '1'; btn.style.background = ''; }, 3000);
+    btn.style.background = 'var(--red,#cf222e)';
+    setTimeout(resetBtn, 3000);
+    return;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    btn.textContent = 'Failed';
+    btn.style.background = 'var(--red,#cf222e)';
+    setTimeout(resetBtn, 3000);
+  } else {
+    btn.textContent = data.outcome === 'ok' ? 'Done ✓' : 'Done (check logs)';
+    btn.style.background = data.outcome === 'ok' ? 'var(--green,#1a7f37)' : '#f59e0b';
+    setTimeout(() => renderTerminalPage(), 600);
   }
 }
 
@@ -3198,7 +3204,7 @@ async function renderTerminalPage() {
   pg.innerHTML = '<div class="term-wrap">' +
     '<div class="term-head">' +
       '<div><div style="font-size:14px;font-weight:700">Terminal — ' + market + '</div><div class="term-note">Default scheduler: 10:00 UTC. Equities run Mon-Fri, commodity Sun-Fri, crypto daily.</div></div>' +
-      '<button id="scan-run-btn" onclick="runScanNow(\'' + mLow + '\')" style="margin-left:auto;padding:6px 16px;border-radius:6px;border:1px solid var(--border);background:var(--surface2,#1e293b);color:var(--text1);cursor:pointer;font-size:12px;font-weight:600;transition:opacity .15s">Run Scan</button>' +
+      '<button id="scan-run-btn" onclick="runScanNow(\'' + mLow + '\')" style="margin-left:auto;padding:6px 16px;border-radius:6px;border:none;background:var(--accent,#0969da);color:#fff;cursor:pointer;font-size:12px;font-weight:600;transition:opacity .15s">Run Scan</button>' +
     '</div>' +
     '<div class="term-shell">' +
       '<div class="term-bar">pipeline_logs · latest 15 rows · postgres-backed when DATABASE_URL is Postgres</div>' +
